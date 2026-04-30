@@ -4,9 +4,9 @@
 
 每天追十几个 AI 信息源，但只推给我最值得花时间的那几条。
 
-![AI Radar 日报截图](docs/images/daily_digest.png)
-
 它不会把所有来源重写成新的长文，而是先抓取内容、建立候选池，再生成日报和周报，最后通过飞书自动推送。
+
+![AI Radar 日报截图](docs/images/daily_digest.png)
 
 ## 它做什么
 
