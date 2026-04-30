@@ -1,0 +1,15 @@
+.env
+__pycache__/
+.pytest_cache/
+.venv/
+venv/
+*.pyc
+
+# Product docs not intended for public repo
+prd.md
+V1.1 PRD.md
+
+# Runtime artifacts
+state/
+transcripts/
+reports/

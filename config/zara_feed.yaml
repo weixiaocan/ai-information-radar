@@ -1,0 +1,13 @@
+feeds:
+  - name: zara_x
+    display_name: Zara Follow Builders X
+    url: https://raw.githubusercontent.com/zarazhangrui/follow-builders/main/feed-x.json
+    enabled: true
+  - name: zara_blog
+    display_name: Zara Follow Builders Blogs
+    url: https://raw.githubusercontent.com/zarazhangrui/follow-builders/main/feed-blogs.json
+    enabled: true
+  - name: zara_podcast
+    display_name: Zara Follow Builders Podcasts
+    url: https://raw.githubusercontent.com/zarazhangrui/follow-builders/main/feed-podcasts.json
+    enabled: true

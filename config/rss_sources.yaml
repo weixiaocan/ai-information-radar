@@ -1,0 +1,18 @@
+sources:
+  - name: simon_willison
+    display_name: Simon Willison
+    url: https://simonwillison.net/atom/everything/
+    enabled: true
+  - name: techcrunch_ai
+    display_name: TechCrunch AI
+    url: https://techcrunch.com/category/artificial-intelligence/feed/
+    enabled: true
+  - name: verge_ai
+    display_name: The Verge AI
+    url: https://www.theverge.com/rss/ai-artificial-intelligence/index.xml
+    enabled: true
+  - name: hacker_news_ai
+    display_name: Hacker News AI
+    url: https://hnrss.org/newest?q=AI+OR+LLM+OR+Claude+OR+GPT&points=100
+    enabled: true
+

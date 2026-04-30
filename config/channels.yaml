@@ -1,0 +1,47 @@
+channels:
+  - name: lennys_podcast
+    display_name: Lenny's Podcast
+    handle: "@LennysPodcast"
+    enabled: true
+    reason: "产品方法论和 PM 视角，贴近目标岗位。"
+  - name: dwarkesh_patel
+    display_name: Dwarkesh Patel
+    handle: "@DwarkeshPatel"
+    enabled: true
+    reason: "AI 学术深度和顶级研究者访谈。"
+  - name: y_combinator
+    display_name: Y Combinator
+    handle: "@ycombinator"
+    enabled: true
+    reason: "创业方法论与早期 AI builder 观察。"
+  - name: latent_space
+    display_name: Latent Space
+    handle: "@LatentSpacePod"
+    enabled: true
+    reason: "AI 应用工程师视角，最贴近 agentic engineering。"
+  - name: training_data
+    display_name: Training Data
+    handle: "@SequoiaCapital"
+    enabled: true
+    reason: "Sequoia 体系内的 AI 研究者与创始人访谈。"
+  - name: no_priors
+    display_name: No Priors
+    handle: "@NoPriorsPodcast"
+    enabled: true
+    reason: "VC 视角的 AI 创始人与产品判断。"
+  - name: unsupervised_learning
+    display_name: Unsupervised Learning
+    handle: "@UnsupervisedLearning-Podcast"
+    enabled: true
+    reason: "Redpoint 视角的 AI 应用案例。"
+  - name: the_mad_podcast
+    display_name: The MAD Podcast
+    handle: "@TheMADPodcast"
+    enabled: true
+    reason: "数据和基础设施层面的 AI 趋势。"
+  - name: ai_and_i
+    display_name: AI & I
+    handle: "@EveryInc"
+    enabled: true
+    reason: "内容创业者视角，贴近个人内容表达。"
+

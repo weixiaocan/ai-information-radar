@@ -1,0 +1,37 @@
+Create the following Windows Task Scheduler tasks:
+
+1. AI Radar Ingest
+   Program/script: python
+   Add arguments: main.py --task ingest
+   Start in: F:\BaiduNetdiskDownload\AI_Radar
+   Trigger: Daily at 07:00
+
+2. AI Radar Tier1
+   Program/script: python
+   Add arguments: main.py --task tier1
+   Start in: F:\BaiduNetdiskDownload\AI_Radar
+   Trigger: Daily at 07:30
+
+3. AI Radar Daily Curate
+   Program/script: python
+   Add arguments: main.py --task daily-curate
+   Start in: F:\BaiduNetdiskDownload\AI_Radar
+   Trigger: Daily at 07:50
+
+4. AI Radar Daily Digest
+   Program/script: python
+   Add arguments: main.py --task daily --deliver
+   Start in: F:\BaiduNetdiskDownload\AI_Radar
+   Trigger: Daily at 08:00
+
+5. AI Radar Tier2
+   Program/script: python
+   Add arguments: main.py --task tier2
+   Start in: F:\BaiduNetdiskDownload\AI_Radar
+   Trigger: Weekly Sunday at 11:00
+
+6. AI Radar Weekly Digest
+   Program/script: python
+   Add arguments: main.py --task weekly --deliver
+   Start in: F:\BaiduNetdiskDownload\AI_Radar
+   Trigger: Weekly Sunday at 12:00
