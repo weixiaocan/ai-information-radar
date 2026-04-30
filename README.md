@@ -1,10 +1,10 @@
 # AI Radar
 
-![AI Radar 日报截图](docs/images/daily_digest.png)
-
 一个会替我做“看不看”决策的 AI 信息系统。
 
 每天追十几个 AI 信息源，但只推给我最值得花时间的那几条。
+
+![AI Radar 日报截图](docs/images/daily_digest.png)
 
 它不会把所有来源重写成新的长文，而是先抓取内容、建立候选池，再生成日报和周报，最后通过飞书自动推送。
 
@@ -52,15 +52,22 @@
 - Windows Task Scheduler
 - 本地文件系统 + JSON / JSONL 状态文件
 
-## 本地运行
+## 如何使用
 
 ```bash
+git clone https://github.com/weixiaocan/ai-information-radar.git
+cd ai-information-radar
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-复制 `.env.example` 为 `.env`，填入你自己的 API key 和飞书 webhook。
+复制 `.env.example` 为 `.env`，至少需要填写这些值：
+
+- `YOUTUBE_API_KEY`
+- `DEEPSEEK_API_KEY`
+- `SUPADATA_API_KEY`
+- `FEISHU_WEBHOOK_URL`
 
 常用命令：
 
@@ -73,14 +80,4 @@ python main.py --task tier2
 python main.py --task weekly --deliver
 ```
 
-## 换电脑使用
-
-```bash
-git clone https://github.com/weixiaocan/ai-information-radar.git
-cd ai-information-radar
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-然后重新创建 `.env`，并在新机器上配置 Windows Task Scheduler。
+如果换到另一台电脑，重复上面这套步骤，并重新配置 Windows Task Scheduler 即可。
