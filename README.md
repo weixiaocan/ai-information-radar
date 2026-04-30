@@ -1,150 +1,68 @@
 # AI Radar
 
-AI Radar is a local-first AI information radar that helps me decide what is actually worth reading or watching each day.
+![AI Radar 日报截图](docs/images/daily_digest.png)
 
-It does not try to rewrite every source into a substitute artifact. Instead, it ingests a focused set of AI information sources, builds explicit candidate pools, selects a small number of worthwhile items, and delivers daily and weekly digests to Feishu.
+一个会替我做“看不看”决策的 AI 信息系统。
 
-![AI Radar Daily Digest](docs/images/daily_digest.png)
+每天追十几个 AI 信息源，但只推给我最值得花时间的那几条。
 
-## What Problem It Solves
+它不会把所有来源重写成新的长文，而是先抓取内容、建立候选池，再生成日报和周报，最后通过飞书自动推送。
 
-Subscribing to many AI sources is easy. Actually deciding what deserves attention is the hard part.
+## 它做什么
 
-Most existing workflows fall into one of two buckets:
+- 聚合 YouTube、RSS，以及 builder / blog / podcast 聚合源
+- 将所有来源统一归一化为 `ContentItem`
+- 先建立候选池，再筛出日报和周报里真正值得看的内容
+- 每天早上推送前一天的日报，每周日中午推送周报
 
-- an RSS-style feed reader that still leaves all selection work to the user
-- a summarization workflow that rewrites everything, but still produces too much to read
+## 日报和周报
 
-AI Radar is built around a different principle:
+日报分三层：
 
-> do not try to read everything for the user; make the keep-or-skip decision for the user first
+- `今日热议`
+  - 有足够集中讨论时，输出主题
+  - 不成主题时，降级为值得看的 builder 帖子
+- `今日精选`
+  - 从当天内容里挑 5 条最值得看的
+- `补充候选`
+  - 展示进过候选池但没有入选的内容
 
-The daily product is intentionally selective:
+周报分两层：
 
-- `Daily Hot Discussion`: either real builder-discussion themes, or a few worthwhile builder / X posts when no real theme forms
-- `Daily Picks`: up to 5 items selected from videos, podcasts, and articles
-- `Supplementary Candidates`: lightweight one-line visibility into worthwhile candidates that did not make the final picks
+- `本周重要主题`
+- `本周最值得亲自看的内容`
 
-The weekly product adds:
+其中周报 Top 2 只从完成 Tier 2 评分的 YouTube 内容里选出。
 
-- `Important Themes of the Week`
-- `Top 2 Worth Watching Yourself`
+## 信息源
 
-## Current Coverage
+当前仓库显式配置了：
 
-This repo combines:
+- 9 个 YouTube channels，见 [`config/channels.yaml`](config/channels.yaml)
+- 4 个 RSS sources，见 [`config/rss_sources.yaml`](config/rss_sources.yaml)
+- 3 个 builder / blog / podcast 聚合 feeds，见 [`config/zara_feed.yaml`](config/zara_feed.yaml)
 
-- YouTube channel ingestion
-- RSS source ingestion
-- Zara feed ingestion:
-  - `zara_x`
-  - `zara_blog`
-  - `zara_podcast`
+其中 builder 聚合源的接入思路借鉴自 [`zarazhangrui/follow-builders`](https://github.com/zarazhangrui/follow-builders)，当前项目使用了它的中心 feed 作为上游输入之一。
 
-Current repo-managed source definitions include:
+## 技术栈
 
-- 9 YouTube channels in [`config/channels.yaml`](config/channels.yaml)
-- 4 RSS sources in [`config/rss_sources.yaml`](config/rss_sources.yaml)
-- 3 Zara feeds in [`config/zara_feed.yaml`](config/zara_feed.yaml)
+- Python
+- DeepSeek API
+- Feishu webhook
+- Windows Task Scheduler
+- 本地文件系统 + JSON / JSONL 状态文件
 
-Representative sources include:
-
-- `Lenny's Podcast`
-- `Dwarkesh Patel`
-- `Y Combinator`
-- `Latent Space`
-- `Training Data`
-- `Simon Willison`
-- `TechCrunch AI`
-- `The Verge AI`
-- `Hacker News AI`
-
-## Product Logic
-
-### Daily Pipeline
-
-The daily digest is not generated as one monolithic AI-written report. It is split into stages:
-
-1. `ingest`
-   Fetch all new source content
-2. `tier1`
-   Generate lightweight summaries and keywords for every item
-3. `daily-curate`
-   Build explicit candidate pools first:
-   - `builder_hot_candidates`
-   - `editorial_candidates`
-   
-   Then make final daily decisions:
-   - `Daily Hot Discussion`
-   - `Daily Picks`
-   - `Supplementary Candidates`
-4. `daily`
-   Render and deliver from structured outputs only
-
-### Weekly Pipeline
-
-The weekly digest has two layers:
-
-- `Important Themes of the Week`
-  Generated from the normalized weekly content set
-- `Top 2 Worth Watching Yourself`
-  Selected only from YouTube items that completed Tier 2 scoring
-
-Weekly ranking is intentionally two-stage:
-
-- coarse scoring on all weekly YouTube candidates
-- transcript fetching and deep scoring only for Top K finalists
-
-## Why This Project Is Different
-
-Several decisions in this repo are deliberate:
-
-- it treats candidate building and final recommendation as separate steps
-- it does not force themes when builder discussion is too weak or too scattered
-- it keeps daily output selective instead of turning into a long feed dump
-- it stores normalized content locally for reproducibility and debugging
-- it is designed to run on a normal Windows machine with local scheduling
-
-## Tech Stack
-
-| Area | Choice |
-|---|---|
-| Language | Python 3.11 |
-| LLM | DeepSeek API |
-| Ingestion | YouTube Data API, feedparser, Zara feeds |
-| Transcript strategy | `youtube-transcript-api` first, `Supadata` fallback |
-| Delivery | Feishu webhook interactive cards |
-| Scheduling | Windows Task Scheduler |
-| Storage | local markdown + JSON/JSONL, no database |
-
-## Repository Structure
-
-- `src/`: pipeline implementation
-- `config/`: static source definitions
-- `prompts/`: prompt templates
-- `tests/`: unit tests
-- `state/`: runtime state, candidates, themes, selections, and scores
-- `transcripts/`: normalized content store, organized by `YYYY-MM-DD/source_type/`
-- `reports/`: archived markdown outputs
-
-## Local Setup
+## 本地运行
 
 ```bash
-git clone https://github.com/weixiaocan/ai-information-radar.git
-cd ai-information-radar
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-copy .env.example .env
 ```
 
-Then fill in your local `.env` with:
+复制 `.env.example` 为 `.env`，填入你自己的 API key 和飞书 webhook。
 
-- DeepSeek API key
-- Feishu webhook
-- any other required local keys
-
-## Common Commands
+常用命令：
 
 ```bash
 python main.py --task ingest
@@ -155,20 +73,7 @@ python main.py --task tier2
 python main.py --task weekly --deliver
 ```
 
-## Suggested Schedule
-
-- Daily `07:00`: `ingest`
-- Daily `07:30`: `tier1`
-- Daily `07:50`: `daily-curate`
-- Daily `08:00`: `daily --deliver`
-- Sunday `11:00`: `tier2`
-- Sunday `12:00`: `weekly --deliver`
-
-The intended daily behavior is: deliver the previous day's content around 08:00.
-
-## Running It On Another Machine
-
-This repo is designed so I can clone it onto another Windows machine and initialize it quickly:
+## 换电脑使用
 
 ```bash
 git clone https://github.com/weixiaocan/ai-information-radar.git
@@ -176,19 +81,6 @@ cd ai-information-radar
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-copy .env.example .env
 ```
 
-Runtime directories such as `state/`, `transcripts/`, and `reports/` are intentionally not stored in GitHub and will be recreated locally.
-
-## Public Repo Notes
-
-The public GitHub repo intentionally excludes:
-
-- product PRD documents
-- `.env`
-- `state/`
-- `transcripts/`
-- `reports/`
-
-The public repository contains the code, config templates, prompts, tests, and documentation, but not private runtime data.
+然后重新创建 `.env`，并在新机器上配置 Windows Task Scheduler。
