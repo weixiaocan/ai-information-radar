@@ -1,37 +1,39 @@
-Create the following Windows Task Scheduler tasks:
+Recommended setup on Windows:
+
+1. Create a virtual environment and install dependencies
+   conda create -n ai-radar python=3.11 -y
+   D:\anaconda\envs\ai-radar\python.exe -m pip install -r requirements.txt
+
+2. Register the scheduled tasks from the repo root
+   powershell -ExecutionPolicy Bypass -File .\scripts\register_tasks.ps1 -PythonExe "D:\anaconda\envs\ai-radar\python.exe"
+
+3. Test the daily push manually before tomorrow 08:00
+   powershell -ExecutionPolicy Bypass -File .\scripts\run_pipeline.ps1 -PythonExe "D:\anaconda\envs\ai-radar\python.exe" -Task daily -Deliver
+
+Tasks created by `scripts/register_tasks.ps1`:
 
 1. AI Radar Ingest
-   Program/script: python
-   Add arguments: main.py --task ingest
-   Start in: F:\BaiduNetdiskDownload\AI_Radar
    Trigger: Daily at 07:00
+   Command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\run_pipeline.ps1" -PythonExe "D:\anaconda\envs\ai-radar\python.exe" -Task ingest
 
 2. AI Radar Tier1
-   Program/script: python
-   Add arguments: main.py --task tier1
-   Start in: F:\BaiduNetdiskDownload\AI_Radar
    Trigger: Daily at 07:30
+   Command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\run_pipeline.ps1" -PythonExe "D:\anaconda\envs\ai-radar\python.exe" -Task tier1
 
 3. AI Radar Daily Curate
-   Program/script: python
-   Add arguments: main.py --task daily-curate
-   Start in: F:\BaiduNetdiskDownload\AI_Radar
    Trigger: Daily at 07:50
+   Command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\run_pipeline.ps1" -PythonExe "D:\anaconda\envs\ai-radar\python.exe" -Task daily-curate
 
 4. AI Radar Daily Digest
-   Program/script: python
-   Add arguments: main.py --task daily --deliver
-   Start in: F:\BaiduNetdiskDownload\AI_Radar
    Trigger: Daily at 08:00
+   Command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\run_pipeline.ps1" -PythonExe "D:\anaconda\envs\ai-radar\python.exe" -Task daily -Deliver
 
 5. AI Radar Tier2
-   Program/script: python
-   Add arguments: main.py --task tier2
-   Start in: F:\BaiduNetdiskDownload\AI_Radar
    Trigger: Weekly Sunday at 11:00
+   Command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\run_pipeline.ps1" -PythonExe "D:\anaconda\envs\ai-radar\python.exe" -Task tier2
 
 6. AI Radar Weekly Digest
-   Program/script: python
-   Add arguments: main.py --task weekly --deliver
-   Start in: F:\BaiduNetdiskDownload\AI_Radar
    Trigger: Weekly Sunday at 12:00
+   Command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\run_pipeline.ps1" -PythonExe "D:\anaconda\envs\ai-radar\python.exe" -Task weekly -Deliver
+
+Logs are written to `state/logs/`.

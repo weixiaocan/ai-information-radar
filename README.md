@@ -54,12 +54,13 @@
 
 ## 如何使用
 
-```bash
+V1 当前只支持在 `Windows + Anaconda` 环境下本地运行和部署，不保证 Linux、macOS、Docker 或纯系统 Python 环境可直接使用。
+
+```powershell
 git clone https://github.com/weixiaocan/ai-information-radar.git
 cd ai-information-radar
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
+conda create -n ai-radar python=3.11 -y
+D:\anaconda\envs\ai-radar\python.exe -m pip install -r requirements.txt
 ```
 
 复制 `.env.example` 为 `.env`，至少需要填写这些值：
@@ -69,15 +70,27 @@ pip install -r requirements.txt
 - `SUPADATA_API_KEY`
 - `FEISHU_WEBHOOK_URL`
 
-常用命令：
+首次部署完成后，注册 Windows 定时任务：
 
-```bash
-python main.py --task ingest
-python main.py --task tier1
-python main.py --task daily-curate
-python main.py --task daily --deliver
-python main.py --task tier2
-python main.py --task weekly --deliver
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\register_tasks.ps1 -PythonExe "D:\anaconda\envs\ai-radar\python.exe"
 ```
 
-如果换到另一台电脑，重复上面这套步骤，并重新配置 Windows Task Scheduler 即可。
+如果要先手动验证一次飞书推送：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run_pipeline.ps1 -PythonExe "D:\anaconda\envs\ai-radar\python.exe" -Task daily -Deliver
+```
+
+常用命令：
+
+```powershell
+D:\anaconda\envs\ai-radar\python.exe main.py --task ingest
+D:\anaconda\envs\ai-radar\python.exe main.py --task tier1
+D:\anaconda\envs\ai-radar\python.exe main.py --task daily-curate
+D:\anaconda\envs\ai-radar\python.exe main.py --task daily --deliver
+D:\anaconda\envs\ai-radar\python.exe main.py --task tier2
+D:\anaconda\envs\ai-radar\python.exe main.py --task weekly --deliver
+```
+
+如果换到另一台 Windows 电脑，重复上面这套步骤即可。计划任务说明见 `taskscheduler.example.txt`。
