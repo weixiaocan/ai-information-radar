@@ -36,23 +36,11 @@
   - 保持轻量，优先单行展示
 - `今日数据`
 
-### 今日热议规则
+来源图标说明：
 
-- 主题聚合只看 Builder/X
-- 真主题要求至少 `3` 个不同 builder 或信息源在讨论同一件事
-- 不能只因为共享一个大词就硬并成主题
-- Spotlight 文案只讲“发生了什么”，不解释“为什么值得看”
-- 如果一句话讲不清具体发生了什么，就不应进入 spotlight
-
-### 今日精选规则
-
-- 只从 `editorial_candidates` 中选择
-- 当前会先产生：
-  - `editorial_candidates_raw`
-  - `editorial_candidates_filtered`
-  - `editorial_top10`
-- 最终 `今日精选` 从 `Top 10` 中选出
-- `value_pitch` 只给已经入选的内容生成
+- `𝕏`：X / Builder
+- `▶️`：YouTube
+- `📰`：RSS / article
 
 ## 周报结构
 
@@ -72,14 +60,6 @@
 - 3 个 Builder / blog / podcast 聚合 feeds，见 [`config/zara_feed.yaml`](config/zara_feed.yaml)
 
 其中 Builder 聚合源的接入思路借鉴自 [`zarazhangrui/follow-builders`](https://github.com/zarazhangrui/follow-builders)，当前项目使用了它的中心 feed 作为上游输入之一。
-
-## 来源图标
-
-日报里目前使用这组来源图标：
-
-- `𝕏`：X / Builder
-- `▶️`：YouTube
-- `📰`：RSS / article
 
 ## 技术栈
 
@@ -155,15 +135,3 @@ powercfg /change standby-timeout-ac 0
 - `state/`：运行状态、候选池、主题和选择结果
 - `reports/daily/`：日报归档
 - `reports/weekly/`：周报归档
-
-## 当前实现重点
-
-- Daily pipeline 已拆成：
-  - `ingest`
-  - `tier1`
-  - `build candidates`
-  - `select themes / selections`
-  - `render + deliver`
-- 候选池与最终选择分离
-- Builder/X 热议与 Editorial 精选分离
-- Spotlight 和精选文案都优先要求“讲清楚发生了什么”
