@@ -183,34 +183,10 @@ class DeepSeekClient:
             for item in items
             if item.source_type == "zara_x"
         ]
-        youtube_summaries = [
-            {
-                "content_id": item.content_id,
-                "channel": item.source_name,
-                "title": item.title,
-                "summary": item.ai_summary or item.body[:200],
-                "url": item.url,
-            }
-            for item in items
-            if item.source_type == "youtube"
-        ]
-        article_summaries = [
-            {
-                "content_id": item.content_id,
-                "source": item.source_name,
-                "title": item.title,
-                "summary": item.ai_summary or item.body[:200],
-                "url": item.url,
-            }
-            for item in items
-            if item.source_type != "youtube" and item.source_type != "zara_x"
-        ]
         prompt = prompt_template.format(
             n_posts=len(builder_posts),
             builder_posts=json.dumps(builder_posts, ensure_ascii=False, indent=2),
             theme_signals_json=json.dumps(theme_signals or [], ensure_ascii=False, indent=2),
-            youtube_summaries=json.dumps(youtube_summaries, ensure_ascii=False, indent=2),
-            article_summaries=json.dumps(article_summaries, ensure_ascii=False, indent=2),
         )
         if feedback:
             prompt += (

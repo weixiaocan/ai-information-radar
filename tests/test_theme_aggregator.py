@@ -81,15 +81,17 @@ class ThemeAggregatorValidationTest(unittest.TestCase):
             [
                 {
                     "source": "Peter Steinberger",
-                    "core_claim": "每次提交后自动审查并修复代码错误，最多循环5次。",
-                    "spotlight_text": "Peter Steinberger 现在让 Codex 在每次提交后自动审查代码，发现问题就继续修，最多循环 5 次。",
+                    "core_claim": "每次提交后自动审查并修复代码错误",
+                    "spotlight_text": "Peter Steinberger 现在让 Codex 在每次提交后自动审查代码，发现问题就继续修",
                     "url": "https://x.com/test/1",
                 }
             ]
         )
+        self.assertEqual(payload["themes"], [])
+        self.assertEqual(payload["discussion_dispersion"], "dispersed")
         self.assertEqual(
             payload["spotlight_posts"][0]["text"],
-            "Peter Steinberger 现在让 Codex 在每次提交后自动审查代码，发现问题就继续修，最多循环 5 次。",
+            "Peter Steinberger 现在让 Codex 在每次提交后自动审查代码，发现问题就继续修",
         )
 
 

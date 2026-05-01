@@ -43,7 +43,7 @@ class DailyDigestBuilder:
                     if evidence.get("excerpt")
                 )
                 summary = self._strip_terminal_punctuation(str(theme.get("summary", "")).strip())
-                content = f"**▌ {theme.get('theme', '未命名主题')}**\n{summary}"
+                content = f"**▎{theme.get('theme', '未命名主题')}**\n{summary}"
                 if evidence_lines:
                     content += f"\n{evidence_lines}"
                 elements.append({"tag": "div", "text": {"tag": "lark_md", "content": content}})
@@ -80,7 +80,7 @@ class DailyDigestBuilder:
 
         if supplementary_items:
             elements.append({"tag": "hr"})
-            elements.append({"tag": "div", "text": {"tag": "lark_md", "content": f"**🗂️ 补充候选（{len(supplementary_items)} 条）**"}})
+            elements.append({"tag": "div", "text": {"tag": "lark_md", "content": f"**🪻 补充候选（{len(supplementary_items)} 条）**"}})
             for item in supplementary_items:
                 elements.append({"tag": "div", "text": {"tag": "lark_md", "content": self._render_supplementary_line(item)}})
 
@@ -109,7 +109,7 @@ class DailyDigestBuilder:
                 "config": {"wide_screen_mode": True},
                 "header": {
                     "template": "blue",
-                    "title": {"tag": "plain_text", "content": f"📡 AI Radar · {digest_date.isoformat()} 周{weekday_cn}"},
+                    "title": {"tag": "plain_text", "content": f"📡 AI Radar · {digest_date.isoformat()} 日报 · 周{weekday_cn}"},
                 },
                 "elements": elements,
             },
@@ -138,12 +138,12 @@ class DailyDigestBuilder:
             if str(content_id).strip()
         }
 
-        lines = [f"# 📡 AI Radar · {digest_date.isoformat()} 周{weekday_cn}", ""]
+        lines = [f"# 📡 AI Radar · {digest_date.isoformat()} 日报 · 周{weekday_cn}", ""]
         lines.append("## 🌡️ 今日热议")
         lines.append("")
         if themes:
             for theme in themes:
-                lines.append(f"### ▌ {theme.get('theme', '未命名主题')}")
+                lines.append(f"### ▎{theme.get('theme', '未命名主题')}")
                 lines.append("")
                 summary = self._strip_terminal_punctuation(str(theme.get("summary", "")).strip())
                 if summary:
@@ -172,14 +172,14 @@ class DailyDigestBuilder:
             lines.append("")
 
         if supplementary_items:
-            lines.append("## 🗂️ 补充候选")
+            lines.append("## 🪻 补充候选")
             lines.append("")
             for item in supplementary_items:
                 lines.append(self._render_markdown_supplementary_line(item))
             lines.append("")
 
         filtered_count = max(int(stats_payload.get("total", 0)) - len(selections) - len(related_ids), 0)
-        lines.append("## 🧾 今日数据")
+        lines.append("## 📊 今日数据")
         lines.append("")
         lines.append(
             f"今日抓取 {stats_payload.get('total', 0)} 条"
@@ -219,36 +219,44 @@ class DailyDigestBuilder:
         }
 
         supplementary: list[dict[str, Any]] = []
-        seen_sources: set[str] = set()
+        source_counts: dict[str, int] = {}
 
-        for candidate in candidates_data.get("editorial_candidates", []):
-            content_id = str(candidate.get("content_id", "")).strip()
-            source_name = str(candidate.get("channel_or_source", "")).strip()
-            if not content_id or not source_name:
-                continue
-            if content_id in displayed_selection_ids or content_id in related_ids or source_name in seen_sources:
-                continue
-            seen_sources.add(source_name)
-            supplementary.append(
-                {
-                    "type": str(candidate.get("type", "article")).strip().lower(),
-                    "source_name": source_name,
-                    "title": str(candidate.get("title", "")).strip(),
-                    "url": str(candidate.get("url", "")).strip(),
-                    "brief": self._strip_terminal_punctuation(str(candidate.get("summary", "")).strip()),
-                }
-            )
-            if len(supplementary) >= 6:
-                return supplementary
+        editorial_pool = candidates_data.get("editorial_top10") or candidates_data.get("editorial_candidates", [])
+        for max_per_source in (1, 2):
+            for candidate in editorial_pool:
+                content_id = str(candidate.get("content_id", "")).strip()
+                source_name = str(candidate.get("channel_or_source", "")).strip()
+                if not content_id or not source_name:
+                    continue
+                if content_id in displayed_selection_ids or content_id in related_ids:
+                    continue
+                if any(item.get("content_id") == content_id for item in supplementary):
+                    continue
+                if source_counts.get(source_name, 0) >= max_per_source:
+                    continue
+                supplementary.append(
+                    {
+                        "content_id": content_id,
+                        "type": str(candidate.get("type", "article")).strip().lower(),
+                        "source_name": source_name,
+                        "title": str(candidate.get("title", "")).strip(),
+                        "url": str(candidate.get("url", "")).strip(),
+                        "brief": self._strip_terminal_punctuation(str(candidate.get("summary", "")).strip()),
+                    }
+                )
+                source_counts[source_name] = source_counts.get(source_name, 0) + 1
+                if len(supplementary) >= 5:
+                    return supplementary
 
         for candidate in candidates_data.get("builder_hot_candidates", []):
             url = str(candidate.get("url", "")).strip()
             source_name = str(candidate.get("source", "")).strip()
             if not url or not source_name:
                 continue
-            if url in displayed_builder_urls or source_name in seen_sources:
+            if url in displayed_builder_urls:
                 continue
-            seen_sources.add(source_name)
+            if any(item.get("url") == url for item in supplementary):
+                continue
             supplementary.append(
                 {
                     "type": "builder",
@@ -260,7 +268,7 @@ class DailyDigestBuilder:
                     ),
                 }
             )
-            if len(supplementary) >= 6:
+            if len(supplementary) >= 5:
                 break
 
         return supplementary
@@ -270,46 +278,46 @@ class DailyDigestBuilder:
         excerpt = self._strip_terminal_punctuation(str(evidence.get("excerpt", "")).strip())
         url = str(evidence.get("url", "")).strip()
         source_md = f"[**{source}**]({url})" if url else f"**{source}**"
-        return f"• {source_md}：{excerpt}"
+        return f"• {self._source_icon('builder')} {source_md}：{excerpt}"
 
     def _render_markdown_evidence_line(self, evidence: dict[str, Any]) -> str:
         source = str(evidence.get("source", "未知来源")).strip() or "未知来源"
         excerpt = self._strip_terminal_punctuation(str(evidence.get("excerpt", "")).strip())
         url = str(evidence.get("url", "")).strip()
         source_md = f"[**{source}**]({url})" if url else f"**{source}**"
-        return f"- {source_md}：{excerpt}"
+        return f"- {self._source_icon('builder')} {source_md}：{excerpt}"
 
     def _render_spotlight_line(self, post: dict[str, Any]) -> str:
         source = str(post.get("source", "未知来源")).strip() or "未知来源"
         text = self._strip_terminal_punctuation(str(post.get("text", "")).strip())
         url = str(post.get("url", "")).strip()
         source_md = f"[**{source}**]({url})" if url else f"**{source}**"
-        return f"• {source_md}：{text}"
+        return f"• {self._source_icon('builder')} {source_md}：{text}"
 
     def _render_markdown_spotlight_line(self, post: dict[str, Any]) -> str:
         source = str(post.get("source", "未知来源")).strip() or "未知来源"
         text = self._strip_terminal_punctuation(str(post.get("text", "")).strip())
         url = str(post.get("url", "")).strip()
         source_md = f"[**{source}**]({url})" if url else f"**{source}**"
-        return f"- {source_md}：{text}"
+        return f"- {self._source_icon('builder')} {source_md}：{text}"
 
     def _render_selection_block(self, selection: dict[str, Any]) -> str:
-        emoji = "🎙️" if selection.get("type") == "youtube" else "📰"
+        icon = self._source_icon(str(selection.get("type", "article")).strip().lower())
         source_name = str(selection.get("channel_or_source", "未知来源")).strip() or "未知来源"
         display_name = self._get_display_name(source_name)
         title = str(selection.get("title", "Untitled")).strip() or "Untitled"
         url = str(selection.get("url", "")).strip()
         value_pitch = self._strip_terminal_punctuation(str(selection.get("value_pitch", "")).strip())
-        return f"{emoji} **{display_name}**\n[{title}]({url})\n{value_pitch}"
+        return f"{icon} **{display_name}**\n[{title}]({url})\n{value_pitch}"
 
     def _render_markdown_selection_block(self, selection: dict[str, Any]) -> list[str]:
-        emoji = "🎙️" if selection.get("type") == "youtube" else "📰"
+        icon = self._source_icon(str(selection.get("type", "article")).strip().lower())
         source_name = str(selection.get("channel_or_source", "未知来源")).strip() or "未知来源"
         display_name = self._get_display_name(source_name)
         title = str(selection.get("title", "Untitled")).strip() or "Untitled"
         url = str(selection.get("url", "")).strip()
         value_pitch = self._strip_terminal_punctuation(str(selection.get("value_pitch", "")).strip())
-        return [f"{emoji} **{display_name}**", f"[{title}]({url})", value_pitch]
+        return [f"{icon} **{display_name}**", f"[{title}]({url})", value_pitch]
 
     def _render_supplementary_line(self, item: dict[str, Any]) -> str:
         display_name = self._get_display_name(str(item.get("source_name", "未知来源")).strip() or "未知来源")
@@ -317,10 +325,10 @@ class DailyDigestBuilder:
         url = str(item.get("url", "")).strip()
         title = str(item.get("title", "")).strip()
         item_type = str(item.get("type", "article")).strip().lower()
-        emoji = "💬" if item_type == "builder" else ("🎙️" if item_type == "youtube" else "📰")
+        icon = self._source_icon(item_type)
         if title:
-            return f"{emoji} **{display_name}** · [{title}]({url}) · {brief}"
-        return f"{emoji} **{display_name}** · [{display_name}]({url}) · {brief}"
+            return f"{icon} **{display_name}** · [{title}]({url}) · {brief}"
+        return f"{icon} **{display_name}** · [{display_name}]({url}) · {brief}"
 
     def _render_markdown_supplementary_line(self, item: dict[str, Any]) -> str:
         display_name = self._get_display_name(str(item.get("source_name", "未知来源")).strip() or "未知来源")
@@ -328,10 +336,10 @@ class DailyDigestBuilder:
         url = str(item.get("url", "")).strip()
         title = str(item.get("title", "")).strip()
         item_type = str(item.get("type", "article")).strip().lower()
-        emoji = "💬" if item_type == "builder" else ("🎙️" if item_type == "youtube" else "📰")
+        icon = self._source_icon(item_type)
         if title:
-            return f"- {emoji} **{display_name}** · [{title}]({url}) · {brief}"
-        return f"- {emoji} **{display_name}** · [{display_name}]({url}) · {brief}"
+            return f"- {icon} **{display_name}** · [{title}]({url}) · {brief}"
+        return f"- {icon} **{display_name}** · [{display_name}]({url}) · {brief}"
 
     def _get_display_name(self, source_name: str) -> str:
         return self.display_name_map.get(source_name, self._fallback_display_name(source_name))
@@ -359,5 +367,12 @@ class DailyDigestBuilder:
             return source_name
         return " ".join(word.capitalize() for word in words)
 
+    def _source_icon(self, item_type: str) -> str:
+        if item_type == "builder":
+            return "𝕏"
+        if item_type == "youtube":
+            return "▶️"
+        return "📰"
+
     def _strip_terminal_punctuation(self, text: str) -> str:
-        return text.rstrip("。．.!！?？")
+        return text.rstrip("。？！.!?；;")

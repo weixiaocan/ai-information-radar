@@ -1,4 +1,5 @@
 import unittest
+from datetime import date
 
 from src.output.daily_digest import DailyDigestBuilder
 
@@ -43,6 +44,16 @@ class DailyDigestBuilderTest(unittest.TestCase):
         self.assertIn("Simon 写了他如何亲手评估这次模型更新的实际表现", selection_text)
         self.assertIn("今日抓取 6 条", note_text)
 
+    def test_daily_digest_header_uses_target_content_date(self) -> None:
+        payload = DailyDigestBuilder().build(
+            themes_data={"themes": [], "spotlight_posts": []},
+            selections_data={"selections": []},
+            stats={"total": 0},
+            target_date=date(2026, 4, 30),
+        )
+        header_text = payload["card"]["header"]["title"]["content"]
+        self.assertEqual(header_text, "📡 AI Radar · 2026-04-30 日报 · 周四")
+
     def test_daily_digest_falls_back_to_spotlight_posts(self) -> None:
         payload = DailyDigestBuilder().build(
             themes_data={
@@ -81,7 +92,7 @@ class DailyDigestBuilderTest(unittest.TestCase):
         self.assertIn("Simon 把 LLM 工具重构成了消息驱动的结构", content)
         self.assertNotIn("结构。", content)
 
-    def test_daily_digest_shows_supplementary_candidates_without_selected_sources(self) -> None:
+    def test_daily_digest_shows_supplementary_candidates_without_selected_items(self) -> None:
         payload = DailyDigestBuilder().build(
             themes_data={"themes": [], "spotlight_posts": []},
             selections_data={
@@ -135,7 +146,7 @@ class DailyDigestBuilderTest(unittest.TestCase):
         self.assertTrue(any("补充候选" in text for text in card_texts))
         self.assertTrue(any("Simon 的补充候选" in text for text in card_texts))
         self.assertFalse(any("should be hidden" in text for text in card_texts))
-        self.assertFalse(any("should be deduped" in text for text in card_texts))
+        self.assertTrue(any("should be deduped" in text for text in card_texts))
 
     def test_supplementary_candidates_render_in_one_line(self) -> None:
         builder = DailyDigestBuilder()
@@ -150,6 +161,101 @@ class DailyDigestBuilderTest(unittest.TestCase):
         )
         self.assertIn("**Simon Willison** · [Another story](https://example.com/another) · Simon 的补充候选", line)
         self.assertNotIn("\n", line)
+
+    def test_supplementary_candidates_can_expand_to_second_item_from_same_source(self) -> None:
+        payload = DailyDigestBuilder().build(
+            themes_data={"themes": [], "spotlight_posts": []},
+            selections_data={
+                "selections": [
+                    {
+                        "content_id": "picked_1",
+                        "type": "article",
+                        "channel_or_source": "simon_willison",
+                        "title": "Picked",
+                        "url": "https://example.com/picked",
+                        "value_pitch": "picked",
+                    }
+                ]
+            },
+            stats={"total": 10},
+            candidates_data={
+                "editorial_top10": [
+                    {
+                        "content_id": "picked_1",
+                        "type": "article",
+                        "channel_or_source": "simon_willison",
+                        "title": "Picked",
+                        "url": "https://example.com/picked",
+                        "summary": "picked",
+                    },
+                    {
+                        "content_id": "extra_1",
+                        "type": "article",
+                        "channel_or_source": "techcrunch_ai",
+                        "title": "Extra 1",
+                        "url": "https://example.com/extra1",
+                        "summary": "extra1",
+                    },
+                    {
+                        "content_id": "extra_2",
+                        "type": "article",
+                        "channel_or_source": "verge_ai",
+                        "title": "Extra 2",
+                        "url": "https://example.com/extra2",
+                        "summary": "extra2",
+                    },
+                    {
+                        "content_id": "extra_3",
+                        "type": "article",
+                        "channel_or_source": "hacker_news_ai",
+                        "title": "Extra 3",
+                        "url": "https://example.com/extra3",
+                        "summary": "extra3",
+                    },
+                    {
+                        "content_id": "extra_4",
+                        "type": "article",
+                        "channel_or_source": "techcrunch_ai",
+                        "title": "Extra 4",
+                        "url": "https://example.com/extra4",
+                        "summary": "extra4",
+                    },
+                ]
+            },
+        )
+        card_texts = [
+            element.get("text", {}).get("content", "")
+            for element in payload["card"]["elements"]
+            if element.get("tag") == "div"
+        ]
+        supplementary_lines = [text for text in card_texts if "· [" in text]
+        self.assertTrue(any("Extra 4" in text for text in supplementary_lines))
+
+    def test_builder_candidates_move_to_supplementary_when_no_themes(self) -> None:
+        payload = DailyDigestBuilder().build(
+            themes_data={"themes": [], "spotlight_posts": []},
+            selections_data={"selections": []},
+            stats={"total": 4},
+            candidates_data={
+                "builder_hot_candidates": [
+                    {
+                        "content_id": "zara_x_1",
+                        "source": "Aaron Levie",
+                        "url": "https://x.com/levie/status/1",
+                        "core_claim": "AI 代理不会减少软件工作",
+                        "spotlight_text": "Aaron Levie 认为 AI 代理不会减少软件工作",
+                    }
+                ],
+                "editorial_top10": [],
+            },
+        )
+        card_texts = [
+            element.get("text", {}).get("content", "")
+            for element in payload["card"]["elements"]
+            if element.get("tag") == "div"
+        ]
+        self.assertTrue(any("补充候选" in text for text in card_texts))
+        self.assertTrue(any("Aaron Levie" in text for text in card_texts))
 
 
 if __name__ == "__main__":

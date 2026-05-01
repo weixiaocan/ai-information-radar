@@ -140,14 +140,15 @@ class ThemeAggregator:
             dispersion = "dispersed"
         return {"themes": themes, "discussion_dispersion": dispersion, "spotlight_posts": []}
 
-    def _empty_result(self, signals: list[dict[str, str]]) -> dict[str, Any]:
+    def _empty_result(self, signals: list[dict[str, str]] | None = None) -> dict[str, Any]:
         spotlight_posts = [
             {
                 "source": signal["source"],
                 "text": signal.get("spotlight_text") or signal["core_claim"],
                 "url": signal["url"],
             }
-            for signal in signals[:4]
+            for signal in (signals or [])[:4]
+            if signal.get("source") and signal.get("url") and (signal.get("spotlight_text") or signal.get("core_claim"))
         ]
         return {
             "themes": [],

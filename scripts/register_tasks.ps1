@@ -1,6 +1,7 @@
 param(
     [string]$TaskPrefix = "AI Radar",
     [string]$PythonExe = "",
+    [string]$RunAsUser = "SYSTEM",
     [string]$DailyTime = "08:00",
     [string]$IngestTime = "07:00",
     [string]$Tier1Time = "07:30",
@@ -57,6 +58,12 @@ function Register-AIRadarTask {
     }
 
     $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument ($scriptArguments -join " ")
+    $principal = if ($RunAsUser -eq "SYSTEM") {
+        New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+    }
+    else {
+        New-ScheduledTaskPrincipal -UserId $RunAsUser -LogonType Interactive -RunLevel Limited
+    }
 
     if ($Weekly) {
         $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At $TriggerTime
@@ -68,12 +75,14 @@ function Register-AIRadarTask {
     $settings = New-ScheduledTaskSettingsSet `
         -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries `
-        -StartWhenAvailable
+        -StartWhenAvailable `
+        -WakeToRun
 
     Register-ScheduledTask `
         -TaskName $taskFullName `
         -Action $action `
         -Trigger $trigger `
+        -Principal $principal `
         -Settings $settings `
         -Description "AI Radar automation task for $TaskName" `
         -Force | Out-Null

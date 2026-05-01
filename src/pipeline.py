@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import date, timedelta
 from pathlib import Path
 
 from src.models.content_item import ContentItem
@@ -125,35 +126,37 @@ class Pipeline:
 
     def daily(self, items: list[ContentItem] | None = None, deliver: bool = True) -> dict:
         items = items or self._load_stage_items("tier1")
-        target_date = max((item.published_at.date() for item in items), default=None)
+        target_date = self._resolve_daily_target_date(items)
         day = target_date.isoformat() if target_date else "latest"
+        daily_items = [item for item in items if item.published_at.date() == target_date] if target_date else []
         candidates_data = self.state_manager.load_daily_candidates(day) if target_date else {"builder_hot_candidates": [], "editorial_candidates": []}
         themes_data = self.state_manager.load_daily_themes(day) if target_date else {"themes": [], "discussion_dispersion": "dispersed"}
         selections_data = self.state_manager.load_daily_selections(day) if target_date else {"selections": []}
-        stats = {"total": len(items)}
+        stats = {"total": len(daily_items)}
         payload = self.daily_builder.build(themes_data, selections_data, stats, target_date=target_date, candidates_data=candidates_data)
         self._write_daily_report(themes_data, selections_data, stats, target_date, candidates_data)
         if deliver:
             self.feishu.send(payload)
         self.state_manager.write_heartbeat(
             "daily",
-            {"items": len(items), "themes": len(themes_data.get("themes", [])), "selections": len(selections_data.get("selections", []))},
+            {"items": len(daily_items), "themes": len(themes_data.get("themes", [])), "selections": len(selections_data.get("selections", []))},
         )
         return payload
 
     def daily_curate(self, items: list[ContentItem] | None = None) -> dict[str, dict]:
         items = items or self._load_stage_items("tier1")
-        target_date = max((item.published_at.date() for item in items), default=None)
+        target_date = self._resolve_daily_target_date(items)
         day = target_date.isoformat() if target_date else "latest"
-        candidates = self.daily_candidate_builder.build(items)
+        daily_items = [item for item in items if item.published_at.date() == target_date] if target_date else []
+        candidates = self.daily_candidate_builder.build(daily_items)
         builder_hot_candidates = candidates.get("builder_hot_candidates", [])
         editorial_candidate_ids = {
             str(candidate.get("content_id", "")).strip()
-            for candidate in candidates.get("editorial_candidates", [])
+            for candidate in candidates.get("editorial_top10", [])
             if str(candidate.get("content_id", "")).strip()
         }
-        editorial_items = [item for item in items if item.content_id in editorial_candidate_ids]
-        themes_data = self.theme_aggregator.aggregate_themes(items, builder_hot_candidates)
+        editorial_items = [item for item in daily_items if item.content_id in editorial_candidate_ids]
+        themes_data = self.theme_aggregator.aggregate_themes(daily_items, builder_hot_candidates)
         exclude_ids: set[str] = set()
         for theme in themes_data.get("themes", []):
             exclude_ids.update(theme.get("related_content_ids", []))
@@ -164,7 +167,7 @@ class Pipeline:
         self.state_manager.write_heartbeat(
             "daily_curate",
             {
-                "items": len(items),
+                "items": len(daily_items),
                 "builder_hot_candidates": len(builder_hot_candidates),
                 "editorial_candidates": len(editorial_items),
                 "themes": len(themes_data.get("themes", [])),
@@ -275,6 +278,21 @@ class Pipeline:
         path = self.weekly_reports_root / f"{filename}.md"
         path.write_text(self.weekly_builder.render_markdown(items), encoding="utf-8")
         return path
+
+    def _resolve_daily_target_date(self, items: list[ContentItem]) -> date | None:
+        item_dates = sorted({item.published_at.date() for item in items})
+        if not item_dates:
+            return None
+
+        preferred = date.today() - timedelta(days=1)
+        if preferred in item_dates:
+            return preferred
+
+        earlier_dates = [item_date for item_date in item_dates if item_date < preferred]
+        if earlier_dates:
+            return earlier_dates[-1]
+
+        return item_dates[-1]
 
 
 def compute_x_mentions(items: list[ContentItem]) -> dict[str, int]:
