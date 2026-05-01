@@ -4,7 +4,11 @@
 
 它每天追踪多种 AI 信息源，但不会把所有内容都重写成长文，而是先抓取、归一化、建立候选池，再筛出真正值得看的内容，最后通过飞书自动推送日报和周报。
 
-![AI Radar 日报截图](docs/images/daily_digest.png)
+## 日报截图
+
+<p align="center">
+  <img src="docs/images/daily_digest.png" alt="AI Radar 日报截图" width="820" />
+</p>
 
 ## 它做什么
 
