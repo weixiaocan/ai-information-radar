@@ -9,6 +9,7 @@ AI Radar is a personal AI information radar for deciding what is worth reading o
 - Product scope, source list, and acceptance criteria live in `prd.md`.
 - V1 implementation defaults and engineering constraints live in this file.
 - If `prd.md` and implementation details conflict during V1 delivery, follow `AGENTS.md`.
+- `README.md` must explicitly preserve the `zara` source attribution and note that the Builder feed uses the `zarazhangrui/follow-builders` center feed as one upstream input.
 
 ## V1 Locked Decisions
 
