@@ -11,6 +11,7 @@ import requests
 
 from src.models.content_item import ContentItem
 from src.utils.prompt_loader import load_prompt
+from src.utils.source_labels import get_original_source_name
 
 LOGGER = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ class DeepSeekClient:
         prompt_template = load_prompt(Path(prompt_path))
         content_hint = "完整字幕" if item.body_type == "transcript" else "标题、描述与元数据"
         prompt = prompt_template.format(
-            source_name=item.source_name,
+            source_name=get_original_source_name(item),
             title=item.title,
             author=item.author or "Unknown",
             body_type=item.body_type,
@@ -81,7 +82,7 @@ class DeepSeekClient:
             like_count=item.like_count or 0,
             comment_count=item.comment_count or 0,
             x_mentions_count=x_mentions_count,
-            channel_name=item.source_name,
+            channel_name=get_original_source_name(item),
             channel_reason=item.extra_metadata.get("channel_reason", ""),
             title=item.title,
             guest_if_extractable=item.extra_metadata.get("guest", "Unknown"),
@@ -95,7 +96,7 @@ class DeepSeekClient:
         prompt_template = load_prompt(Path(prompt_path))
         prompt = prompt_template.format(
             title=item.title,
-            channel_name=item.source_name,
+            channel_name=get_original_source_name(item),
             score_json=json.dumps(score_payload, ensure_ascii=False),
             transcript=item.body[:15000],
         )
@@ -121,7 +122,7 @@ class DeepSeekClient:
                 "\n".join(
                     [
                         f"- source_type: {item.source_type}",
-                        f"  source_name: {item.source_name}",
+                        f"  source_name: {get_original_source_name(item)}",
                         f"  title: {item.title}",
                         f"  summary: {item.ai_summary or item.body[:160]}",
                         f"  keywords: {', '.join(item.ai_keywords[:5])}",
@@ -207,7 +208,7 @@ class DeepSeekClient:
             {
                 "content_id": item.content_id,
                 "type": "youtube" if item.source_type == "youtube" else "article",
-                "channel_or_source": item.source_name,
+                "channel_or_source": get_original_source_name(item),
                 "title": item.title,
                 "url": item.url,
                 "summary": item.ai_summary or item.body[:240],
@@ -229,7 +230,7 @@ class DeepSeekClient:
         prompt = prompt_template.format(
             rank=rank,
             title=item.title,
-            channel_name=item.source_name,
+            channel_name=get_original_source_name(item),
             url=item.url,
             published_at=item.published_at.isoformat(),
             duration_seconds=item.duration_seconds or 0,

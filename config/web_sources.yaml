@@ -1,0 +1,13 @@
+sources:
+  - name: anthropic_engineering
+    display_name: Anthropic Engineering
+    type: scrape
+    index_url: "https://www.anthropic.com/engineering"
+    article_base_url: "https://www.anthropic.com/engineering/"
+    enabled: true
+  - name: claude_blog
+    display_name: Claude Blog
+    type: scrape
+    index_url: "https://www.anthropic.com/news"
+    article_base_url: "https://www.anthropic.com/news/"
+    enabled: true

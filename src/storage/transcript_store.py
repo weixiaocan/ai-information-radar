@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 from typing import Iterable
 
@@ -33,6 +34,30 @@ class TranscriptStore:
                 items.append(item)
         items.sort(key=lambda item: item.published_at)
         return items
+
+    def load_by_date(self, target_date: date) -> list[ContentItem]:
+        day_dir = self.root / target_date.isoformat()
+        items: list[ContentItem] = []
+        if not day_dir.exists():
+            return items
+        for path in day_dir.rglob("*.md"):
+            item = self._load_item(path)
+            if item and item.published_at.date() == target_date:
+                items.append(item)
+        items.sort(key=lambda item: item.published_at)
+        return items
+
+    def load_available_dates(self) -> list[date]:
+        dates: list[date] = []
+        for path in self.root.iterdir():
+            if not path.is_dir():
+                continue
+            try:
+                dates.append(date.fromisoformat(path.name))
+            except ValueError:
+                continue
+        dates.sort()
+        return dates
 
     def _render_markdown(self, item: ContentItem) -> str:
         frontmatter = {

@@ -5,6 +5,7 @@ from pathlib import Path
 from src.models.content_item import ContentItem
 from src.processing.tier2_score import score_total
 from src.utils.llm_client import DeepSeekClient
+from src.utils.source_labels import get_original_source_name
 from src.utils.slugify import slugify
 
 
@@ -31,7 +32,7 @@ class TopVideoReportWriter:
 
         outputs: list[Path] = []
         for index, item in enumerate(ranked, start=1):
-            path = week_dir / f"top{index}_{slugify(item.source_name)}_{slugify(item.title)}.md"
+            path = week_dir / f"top{index}_{slugify(get_original_source_name(item))}_{slugify(item.title)}.md"
             path.write_text(self.client.ebook_report(str(self.prompt_path), item, index), encoding="utf-8")
             outputs.append(path)
         return outputs

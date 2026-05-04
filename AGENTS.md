@@ -23,15 +23,21 @@
 - Normal daily ingest fetches only the last 1 day of content.
 - Do not backfill outside the configured bootstrap window unless explicitly requested.
 - Do not default to generated transcripts.
+- Daily and weekly digests must be rebuilt from stored normalized content for the target date or week, not from only the latest ingest batch.
+- Source labels shown in daily and weekly reports must prefer the original source or author label, not upstream transport names such as `zara_x`, `zara_blog`, or `zara_podcast`.
 
 ## Content Policy
 
-- Supported sources in V1 are YouTube channels, RSS feeds, and Zara feed.
+- Supported primary content sources in V1 are YouTube channels, YouTube playlists, RSS feeds, and web scrape sources.
+- Zara is not a primary article or podcast source in V1.
+- Zara is retained only as an upstream Builder/X signal source via `zara_x`.
 - Normalize all sources into a shared `ContentItem`.
 - Daily and weekly digests must be generated from normalized source content, not by rewriting previous digests.
 - `今日热议` is builder/X only.
 - `今日精选` is chosen only from editorial candidates.
 - `补充候选` must only contain candidates that entered the pool but did not enter `今日热议` or `今日精选`.
+- Daily curation must be based on the full normalized content set for the target day.
+- Weekly themes may summarize any normalized weekly content, including Zara X signals, RSS, web, and YouTube.
 - Weekly Top 2 recommendations must come only from YouTube items that completed Tier 2 scoring.
 
 ## Non-Goals

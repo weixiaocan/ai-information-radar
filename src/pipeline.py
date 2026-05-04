@@ -70,6 +70,7 @@ class Pipeline:
 
     def ingest(self, recent_days_override: int | None = None, ignore_seen: bool = False) -> list[ContentItem]:
         from src.ingestion.rss_fetcher import RSSFetcher
+        from src.ingestion.web_fetcher import WebFetcher
         from src.ingestion.youtube_fetcher import YouTubeFetcher
         from src.ingestion.zara_fetcher import ZaraFetcher
 
@@ -80,14 +81,23 @@ class Pipeline:
             if recent_days_override is not None
             else (self.settings.bootstrap_days if not seen_ids else self.settings.incremental_days)
         )
-        channels = load_yaml(self.settings.project_root / "config" / "channels.yaml").get("channels", [])
+        channel_config = load_yaml(self.settings.project_root / "config" / "channels.yaml")
+        channels = channel_config.get("channels", [])
+        playlists = channel_config.get("playlists", [])
         rss_sources = load_yaml(self.settings.project_root / "config" / "rss_sources.yaml").get("sources", [])
-        zara_feeds = load_yaml(self.settings.project_root / "config" / "zara_feed.yaml").get("feeds", [])
+        web_sources = load_yaml(self.settings.project_root / "config" / "web_sources.yaml").get("sources", [])
+        zara_feeds = [
+            feed
+            for feed in load_yaml(self.settings.project_root / "config" / "zara_feed.yaml").get("feeds", [])
+            if str(feed.get("name", "")).strip() == "zara_x"
+        ]
 
         youtube_items = self._safe_fetch_youtube(YouTubeFetcher, channels, effective_seen_ids, recent_days)
+        playlist_items = self._safe_fetch_youtube_playlists(YouTubeFetcher, playlists, effective_seen_ids, recent_days)
         rss_items = self._safe_fetch_rss(RSSFetcher, rss_sources, effective_seen_ids, recent_days)
+        web_items = self._safe_fetch_web(WebFetcher, web_sources, effective_seen_ids, recent_days)
         zara_items = self._safe_fetch_zara(ZaraFetcher, zara_feeds, effective_seen_ids, recent_days)
-        items = youtube_items + rss_items + zara_items
+        items = youtube_items + playlist_items + rss_items + web_items + zara_items
         self.transcript_store.save_many(items)
         seen_ids.update(item.content_id for item in items)
         self.state_manager.save_seen_ids(seen_ids)
@@ -128,7 +138,7 @@ class Pipeline:
         items = items or self._load_stage_items("tier1")
         target_date = self._resolve_daily_target_date(items)
         day = target_date.isoformat() if target_date else "latest"
-        daily_items = [item for item in items if item.published_at.date() == target_date] if target_date else []
+        daily_items = self._load_items_for_target_date(target_date, items)
         candidates_data = self.state_manager.load_daily_candidates(day) if target_date else {"builder_hot_candidates": [], "editorial_candidates": []}
         themes_data = self.state_manager.load_daily_themes(day) if target_date else {"themes": [], "discussion_dispersion": "dispersed"}
         selections_data = self.state_manager.load_daily_selections(day) if target_date else {"selections": []}
@@ -147,7 +157,7 @@ class Pipeline:
         items = items or self._load_stage_items("tier1")
         target_date = self._resolve_daily_target_date(items)
         day = target_date.isoformat() if target_date else "latest"
-        daily_items = [item for item in items if item.published_at.date() == target_date] if target_date else []
+        daily_items = self._load_items_for_target_date(target_date, items)
         candidates = self.daily_candidate_builder.build(daily_items)
         builder_hot_candidates = candidates.get("builder_hot_candidates", [])
         editorial_candidate_ids = {
@@ -208,11 +218,34 @@ class Pipeline:
             self.state_manager.write_heartbeat("ingest_warning", {"source": "youtube", "error": str(exc)})
             return []
 
+    def _safe_fetch_youtube_playlists(
+        self,
+        fetcher_cls,
+        playlists: list[dict],
+        seen_ids: set[str],
+        recent_days: int,
+    ) -> list[ContentItem]:
+        try:
+            return fetcher_cls(
+                self.settings.youtube_api_key,
+                self.settings.request_timeout_seconds,
+            ).fetch_playlists(playlists, seen_ids, recent_days=recent_days)
+        except Exception as exc:
+            self.state_manager.write_heartbeat("ingest_warning", {"source": "youtube_playlists", "error": str(exc)})
+            return []
+
     def _safe_fetch_rss(self, fetcher_cls, rss_sources: list[dict], seen_ids: set[str], recent_days: int) -> list[ContentItem]:
         try:
             return fetcher_cls(self.settings.request_timeout_seconds).fetch(rss_sources, seen_ids, recent_days)
         except Exception as exc:
             self.state_manager.write_heartbeat("ingest_warning", {"source": "rss", "error": str(exc)})
+            return []
+
+    def _safe_fetch_web(self, fetcher_cls, web_sources: list[dict], seen_ids: set[str], recent_days: int) -> list[ContentItem]:
+        try:
+            return fetcher_cls(self.settings.request_timeout_seconds).fetch(web_sources, seen_ids, recent_days)
+        except Exception as exc:
+            self.state_manager.write_heartbeat("ingest_warning", {"source": "web", "error": str(exc)})
             return []
 
     def _safe_fetch_zara(self, fetcher_cls, zara_feeds: list[dict], seen_ids: set[str], recent_days: int) -> list[ContentItem]:
@@ -280,7 +313,7 @@ class Pipeline:
         return path
 
     def _resolve_daily_target_date(self, items: list[ContentItem]) -> date | None:
-        item_dates = sorted({item.published_at.date() for item in items})
+        item_dates = sorted({item.published_at.date() for item in items}) or self.transcript_store.load_available_dates()
         if not item_dates:
             return None
 
@@ -293,6 +326,14 @@ class Pipeline:
             return earlier_dates[-1]
 
         return item_dates[-1]
+
+    def _load_items_for_target_date(self, target_date: date | None, fallback_items: list[ContentItem]) -> list[ContentItem]:
+        if not target_date:
+            return []
+        stored_items = self.transcript_store.load_by_date(target_date)
+        if stored_items:
+            return stored_items
+        return [item for item in fallback_items if item.published_at.date() == target_date]
 
 
 def compute_x_mentions(items: list[ContentItem]) -> dict[str, int]:

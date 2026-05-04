@@ -347,11 +347,18 @@ class DailyDigestBuilder:
     def _load_display_name_map(self) -> dict[str, str]:
         project_root = Path(__file__).resolve().parents[2]
         channels = load_yaml(project_root / "config" / "channels.yaml").get("channels", [])
+        playlists = load_yaml(project_root / "config" / "channels.yaml").get("playlists", [])
         rss_sources = load_yaml(project_root / "config" / "rss_sources.yaml").get("sources", [])
+        web_sources = load_yaml(project_root / "config" / "web_sources.yaml").get("sources", [])
         mapping: dict[str, str] = {}
         for channel in channels:
             name = str(channel.get("name", "")).strip()
             display_name = str(channel.get("display_name", "")).strip()
+            if name and display_name:
+                mapping[name] = display_name
+        for playlist in playlists:
+            name = str(playlist.get("name", "")).strip()
+            display_name = str(playlist.get("display_name", "")).strip()
             if name and display_name:
                 mapping[name] = display_name
         for source in rss_sources:
@@ -359,9 +366,16 @@ class DailyDigestBuilder:
             display_name = str(source.get("display_name", "")).strip()
             if name and display_name:
                 mapping[name] = display_name
+        for source in web_sources:
+            name = str(source.get("name", "")).strip()
+            display_name = str(source.get("display_name", "")).strip()
+            if name and display_name:
+                mapping[name] = display_name
         return mapping
 
     def _fallback_display_name(self, source_name: str) -> str:
+        if " " in source_name or any(char.isupper() for char in source_name):
+            return source_name
         words = [part for part in source_name.replace("-", "_").split("_") if part]
         if not words:
             return source_name

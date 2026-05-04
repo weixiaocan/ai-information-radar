@@ -15,6 +15,8 @@ from src.pipeline import Pipeline
 class PipelineHelpersTest(unittest.TestCase):
     def test_resolve_daily_target_date_prefers_previous_local_day(self) -> None:
         pipeline = Pipeline.__new__(Pipeline)
+        pipeline.transcript_store = Mock()
+        pipeline.transcript_store.load_available_dates.return_value = []
         items = [
             ContentItem(
                 content_id="rss_1",
@@ -49,6 +51,68 @@ class PipelineHelpersTest(unittest.TestCase):
             resolved = Pipeline._resolve_daily_target_date(pipeline, items)
 
         self.assertEqual(resolved, date(2026, 4, 30))
+
+    def test_resolve_daily_target_date_falls_back_to_stored_dates(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline.transcript_store = Mock()
+        pipeline.transcript_store.load_available_dates.return_value = [date(2026, 5, 2), date(2026, 5, 3)]
+
+        with unittest.mock.patch("src.pipeline.date") as mock_date:
+            mock_date.today.return_value = date(2026, 5, 4)
+            mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+            resolved = Pipeline._resolve_daily_target_date(pipeline, [])
+
+        self.assertEqual(resolved, date(2026, 5, 3))
+
+    def test_daily_uses_all_stored_items_for_target_date(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        target_item = ContentItem(
+            content_id="rss_target",
+            source_type="rss",
+            source_name="simon_willison",
+            title="Target",
+            url="https://example.com/target",
+            author="Simon",
+            published_at=datetime(2026, 5, 3, 12, tzinfo=timezone.utc),
+            fetched_at=datetime(2026, 5, 4, 1, tzinfo=timezone.utc),
+            body="Target body",
+            body_type="article",
+        )
+        fallback_item = ContentItem(
+            content_id="rss_other",
+            source_type="rss",
+            source_name="simon_willison",
+            title="Other",
+            url="https://example.com/other",
+            author="Simon",
+            published_at=datetime(2026, 5, 3, 10, tzinfo=timezone.utc),
+            fetched_at=datetime(2026, 5, 4, 1, tzinfo=timezone.utc),
+            body="Other body",
+            body_type="article",
+        )
+        pipeline._load_stage_items = Mock(return_value=[fallback_item])
+        pipeline.transcript_store = Mock()
+        pipeline.transcript_store.load_available_dates.return_value = [date(2026, 5, 3)]
+        pipeline.transcript_store.load_by_date.return_value = [target_item]
+        pipeline.state_manager = Mock()
+        pipeline.state_manager.load_daily_candidates.return_value = {"builder_hot_candidates": [], "editorial_candidates": []}
+        pipeline.state_manager.load_daily_themes.return_value = {"themes": [], "discussion_dispersion": "dispersed"}
+        pipeline.state_manager.load_daily_selections.return_value = {"selections": []}
+        pipeline.state_manager.write_heartbeat = Mock()
+        pipeline.daily_builder = Mock()
+        pipeline.daily_builder.build.return_value = {"msg_type": "interactive"}
+        pipeline._write_daily_report = Mock()
+        pipeline.feishu = Mock()
+
+        with unittest.mock.patch("src.pipeline.date") as mock_date:
+            mock_date.today.return_value = date(2026, 5, 4)
+            mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+            payload = Pipeline.daily(pipeline, deliver=False)
+
+        pipeline.daily_builder.build.assert_called_once()
+        stats = pipeline.daily_builder.build.call_args.args[2]
+        self.assertEqual(stats["total"], 1)
+        self.assertEqual(payload, {"msg_type": "interactive"})
 
     def test_compute_x_mentions_matches_video_id_and_url(self) -> None:
         youtube_item = ContentItem(

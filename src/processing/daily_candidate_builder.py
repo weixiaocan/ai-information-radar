@@ -7,6 +7,7 @@ from typing import Any
 
 from src.models.content_item import ContentItem
 from src.utils.llm_client import DeepSeekClient
+from src.utils.source_labels import get_original_source_name
 
 
 @dataclass
@@ -134,7 +135,7 @@ class DailyCandidateBuilder:
                 {
                     "content_id": item.content_id,
                     "type": "youtube" if item.source_type == "youtube" else "article",
-                    "channel_or_source": item.source_name,
+                    "channel_or_source": get_original_source_name(item),
                     "title": item.title,
                     "url": item.url,
                     "summary": item.ai_summary or item.body[:240],

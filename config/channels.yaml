@@ -19,11 +19,6 @@ channels:
     handle: "@LatentSpacePod"
     enabled: true
     reason: "AI 应用工程师视角，最贴近 agentic engineering。"
-  - name: training_data
-    display_name: Training Data
-    handle: "@SequoiaCapital"
-    enabled: true
-    reason: "Sequoia 体系内的 AI 研究者与创始人访谈。"
   - name: no_priors
     display_name: No Priors
     handle: "@NoPriorsPodcast"
@@ -39,9 +34,16 @@ channels:
     handle: "@TheMADPodcast"
     enabled: true
     reason: "数据和基础设施层面的 AI 趋势。"
+playlists:
+  - name: training_data
+    display_name: Training Data
+    playlist_id: "PLOhHNjZItNnMm5tdW61JpnyxeYH5NDDx8"
+    url: "https://www.youtube.com/playlist?list=PLOhHNjZItNnMm5tdW61JpnyxeYH5NDDx8"
+    enabled: true
+    reason: "Sequoia 体系内的 AI 研究者与创始人访谈。"
   - name: ai_and_i
     display_name: AI & I
-    handle: "@EveryInc"
+    playlist_id: "PLuMcoKK9mKgHtW_o9h5sGO2vXrffKHwJL"
+    url: "https://www.youtube.com/playlist?list=PLuMcoKK9mKgHtW_o9h5sGO2vXrffKHwJL"
     enabled: true
     reason: "内容创业者视角，贴近个人内容表达。"
-

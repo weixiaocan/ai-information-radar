@@ -7,6 +7,7 @@ from typing import Any
 import requests
 
 from src.models.content_item import ContentItem
+from src.utils.source_labels import resolve_zara_source_name
 from src.utils.time_utils import utc_days_ago, utc_now
 
 LOGGER = logging.getLogger(__name__)
@@ -66,12 +67,13 @@ class ZaraFetcher:
     def _to_content_item(self, feed: dict[str, Any], entry: dict) -> ContentItem:
         source_kind = str(entry.get("type", "summary")).lower()
         source_type = feed["name"] if feed["name"].startswith("zara_") else f"zara_{source_kind}"
+        source_name = resolve_zara_source_name(feed["name"], entry)
         native_id = entry.get("id") or entry.get("url") or entry.get("title")
         published_at = _parse_datetime(entry.get("published_at") or entry.get("date"))
         return ContentItem(
             content_id=f"{source_type}_{native_id}",
             source_type=source_type,
-            source_name=feed["name"],
+            source_name=source_name,
             title=entry.get("title") or entry.get("summary") or "Untitled Zara item",
             url=entry.get("url") or entry.get("link") or "",
             author=entry.get("author"),
@@ -79,7 +81,11 @@ class ZaraFetcher:
             fetched_at=utc_now(),
             body=entry.get("content") or entry.get("summary") or entry.get("transcript") or "",
             body_type="summary" if feed["name"] != "zara_podcast" else "transcript",
-            extra_metadata={"raw_entry": entry, "display_name": feed.get("display_name", feed["name"])},
+            extra_metadata={
+                "raw_entry": entry,
+                "display_name": feed.get("display_name", feed["name"]),
+                "upstream_source_name": feed["name"],
+            },
         )
 
 

@@ -1,77 +1,49 @@
 # AI Radar
 
-一个帮我做“看不看”决策的 AI 信息雷达。
+一个面向 AI 从业者的日报 / 周报系统，用来回答一件事：**哪些内容值得看，哪些可以跳过。**
 
-它每天追踪多种 AI 信息源，但不会把所有内容都重写成长文，而是先抓取、归一化、建立候选池，再筛出真正值得看的内容，最后通过飞书自动推送日报和周报。
-
-## 日报截图
-
-<p align="center">
-  <img src="docs/images/daily_digest.png" alt="AI Radar 日报截图" width="820" />
-</p>
+它会抓取一组固定来源，做标准化、摘要、筛选，然后把结果推送到飞书。
 
 ## 它做什么
 
-- 聚合 YouTube、RSS 和 Builder/X 信息源
-- 将所有来源统一归一化为 `ContentItem`
-- 先构建候选池，再做最终选择，而不是边改写边重排
-- 每天早上推送前一天的日报
-- 每周生成周报和 Top 2 深读内容
+- 每天推送一份日报
+- 每周推送一份周报
+- 单独给出本周最值得亲自看的 Top 2 视频
+- 把 Builder/X 讨论和 editorial 精选分开处理
 
-## 日报结构
+## 信息源
 
-日报分四层：
+当前主内容源：
 
-- `今日热议`
-  - 只基于 Builder/X 内容
-  - 如果几个人在讨论同一件事，聚合成 `0-3` 个主题
-  - 主题 evidence 只展示 X 来源
-  - 如果凑不成真主题，降级成 `2-4` 条值得看的 Builder/X 帖子
-- `今日精选`
-  - 只从 `editorial_candidates` 里选
-  - 目前最多 `5` 条
-  - 先做显式候选池过滤与排序，再做最终精选
-- `补充候选`
-  - 展示进入过候选池，但没有进入 `今日热议` 或 `今日精选` 的内容
-  - 保持轻量，优先单行展示
-- `今日数据`
+- YouTube channels / playlists
+- RSS feeds
+- Web scrape sources
 
-来源图标说明：
+Builder/X 信号源：
 
-- `𝕏`：X / Builder
-- `▶️`：YouTube
-- `📰`：RSS / article
+- Zara upstream builder feed
 
-## 周报结构
+其中 Builder/X 仍使用 [`zarazhangrui/follow-builders`](https://github.com/zarazhangrui/follow-builders) 作为上游输入；Zara 只负责 Builder/X，blog / podcast 内容已经并入本地抓取链路。
 
-周报分两层：
+## 日报
+
+日报包含四部分：
+
+- `今日热议`：只看 Builder/X
+- `今日精选`：只从 editorial candidates 里选
+- `补充候选`：进过候选池但没进前两栏
+- `今日数据`：当天抓取与展示统计
+
+## 周报
+
+周报包含两部分：
 
 - `本周重要主题`
 - `本周最值得亲自看的内容`
 
-其中周报 Top 2 只从完成 Tier 2 评分的 YouTube 内容中选出。
+其中 Top 2 只来自完成 Tier 2 评分的 YouTube 内容。
 
-## 信息源
-
-当前仓库显式配置了：
-
-- 9 个 YouTube channels，见 [`config/channels.yaml`](config/channels.yaml)
-- 4 个 RSS sources，见 [`config/rss_sources.yaml`](config/rss_sources.yaml)
-- 3 个 Builder / blog / podcast 聚合 feeds，见 [`config/zara_feed.yaml`](config/zara_feed.yaml)
-
-其中 Builder 聚合源的接入思路借鉴自 [`zarazhangrui/follow-builders`](https://github.com/zarazhangrui/follow-builders)，当前项目使用了它的中心 feed 作为上游输入之一。
-
-## 技术栈
-
-- Python
-- DeepSeek API
-- Feishu webhook
-- Windows Task Scheduler
-- 本地文件系统 + JSON / JSONL 状态文件
-
-## 如何使用
-
-V1 当前只支持在 `Windows + Anaconda` 环境中本地运行和部署。
+## 快速开始
 
 ```powershell
 git clone https://github.com/weixiaocan/ai-information-radar.git
@@ -87,19 +59,19 @@ D:\anaconda\envs\ai-radar\python.exe -m pip install -r requirements.txt
 - `SUPADATA_API_KEY`
 - `FEISHU_WEBHOOK_URL`
 
-首次部署后，注册 Windows 定时任务：
+注册定时任务：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\register_tasks.ps1 -PythonExe "D:\anaconda\envs\ai-radar\python.exe"
 ```
 
-如果要先手动验证一次飞书推送：
+手动推送一次日报：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\run_pipeline.ps1 -PythonExe "D:\anaconda\envs\ai-radar\python.exe" -Task daily -Deliver
+D:\anaconda\envs\ai-radar\python.exe main.py --task daily --deliver
 ```
 
-常用命令：
+## 常用命令
 
 ```powershell
 D:\anaconda\envs\ai-radar\python.exe main.py --task ingest
@@ -110,28 +82,17 @@ D:\anaconda\envs\ai-radar\python.exe main.py --task tier2
 D:\anaconda\envs\ai-radar\python.exe main.py --task weekly --deliver
 ```
 
-## 定时任务与睡眠
+## 输出示例
 
-当前推荐配置：
-
-- 任务使用 `SYSTEM` 运行
-- `WakeToRun = True`
-- `StartWhenAvailable = True`
-
-如果你要求早上 `08:00` 准时推送，建议再确认：
-
-```powershell
-powercfg /change standby-timeout-ac 0
-```
-
-这会把“插电状态下自动睡眠”改成关闭，避免机器在夜里睡过去错过任务。
+<p align="center">
+  <img src="docs/images/daily_digest.png" alt="AI Radar daily digest screenshot" width="820" />
+</p>
 
 ## 目录结构
 
-- `src/`：源码
-- `config/`：静态配置
+- `src/`：代码
+- `config/`：来源配置
 - `prompts/`：提示词
-- `transcripts/`：归一化原始内容
-- `state/`：运行状态、候选池、主题和选择结果
-- `reports/daily/`：日报归档
-- `reports/weekly/`：周报归档
+- `transcripts/`：标准化内容仓
+- `state/`：运行状态、候选池、主题、选择结果
+- `reports/`：日报 / 周报归档

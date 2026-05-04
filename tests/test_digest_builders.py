@@ -1,7 +1,10 @@
 import unittest
-from datetime import date
+from datetime import date, datetime, timezone
+from unittest.mock import Mock
 
+from src.models.content_item import ContentItem
 from src.output.daily_digest import DailyDigestBuilder
+from src.output.weekly_digest import WeeklyDigestBuilder
 
 
 class DailyDigestBuilderTest(unittest.TestCase):
@@ -256,6 +259,79 @@ class DailyDigestBuilderTest(unittest.TestCase):
         ]
         self.assertTrue(any("补充候选" in text for text in card_texts))
         self.assertTrue(any("Aaron Levie" in text for text in card_texts))
+
+
+class WeeklyDigestBuilderTest(unittest.TestCase):
+    def test_weekly_digest_uses_original_source_names_for_historical_zara_items(self) -> None:
+        client = Mock()
+        client.weekly_themes.return_value = {
+            "themes": [
+                {
+                    "title": "Claude ecosystem",
+                    "summary": "Theme summary",
+                    "highlights": [
+                        {
+                            "title": "Built-in memory for Claude Managed Agents",
+                            "url": "https://claude.com/blog/memory",
+                            "source_name": "Anthropic Engineering",
+                            "type": "article",
+                        }
+                    ],
+                }
+            ]
+        }
+        client.weekly_pitch.return_value = "pitch"
+        builder = WeeklyDigestBuilder(client, "prompts/weekly_pitch.md", "prompts/weekly_themes.md")
+        items = [
+            ContentItem(
+                content_id="zara_blog_1",
+                source_type="zara_blog",
+                source_name="zara_blog",
+                title="Built-in memory for Claude Managed Agents",
+                url="https://claude.com/blog/memory",
+                author=None,
+                published_at=datetime(2026, 5, 3, tzinfo=timezone.utc),
+                fetched_at=datetime(2026, 5, 3, 1, tzinfo=timezone.utc),
+                body="Body",
+                body_type="article",
+                ai_summary="Summary",
+                extra_metadata={"raw_entry": {"name": "Anthropic Engineering"}},
+            )
+        ]
+
+        markdown = builder.render_markdown(items)
+
+        self.assertIn("`Anthropic Engineering`", markdown)
+
+    def test_weekly_digest_top_section_uses_playlist_display_name(self) -> None:
+        client = Mock()
+        client.weekly_themes.return_value = {"themes": []}
+        client.weekly_pitch.return_value = "pitch"
+        builder = WeeklyDigestBuilder(client, "prompts/weekly_pitch.md", "prompts/weekly_themes.md")
+        items = [
+            ContentItem(
+                content_id="youtube_1",
+                source_type="youtube",
+                source_name="training_data",
+                title="Inference cloud",
+                url="https://youtube.com/watch?v=1",
+                author="Host",
+                published_at=datetime(2026, 5, 3, tzinfo=timezone.utc),
+                fetched_at=datetime(2026, 5, 3, 1, tzinfo=timezone.utc),
+                body="Transcript",
+                body_type="transcript",
+                ai_score={
+                    "relevance": 8,
+                    "contrarian": 8,
+                    "guest_rarity": 8,
+                    "popularity": 8,
+                },
+            )
+        ]
+
+        markdown = builder.render_markdown(items)
+
+        self.assertIn("**Training Data**", markdown)
 
 
 if __name__ == "__main__":
