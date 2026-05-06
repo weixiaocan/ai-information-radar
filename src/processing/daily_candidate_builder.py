@@ -40,6 +40,7 @@ class DailyCandidateBuilder:
 
         payload = self.client.daily_theme_signals(str(self.signal_prompt_path), builder_items)
         items_by_id = {item.content_id: item for item in builder_items}
+        items_by_url = {item.url: item for item in builder_items if item.url}
         candidates: list[dict[str, str]] = []
         seen_urls: set[str] = set()
 
@@ -62,6 +63,7 @@ class DailyCandidateBuilder:
                 continue
 
             seen_urls.add(url)
+            source = self._resolve_builder_source(source, item, items_by_url.get(url))
             candidates.append(
                 {
                     "content_id": content_id,
@@ -83,6 +85,20 @@ class DailyCandidateBuilder:
         if len(candidates) < 3:
             candidates = self._backfill_builder_candidates(builder_items, candidates)
         return candidates
+
+    def _resolve_builder_source(
+        self,
+        source: str,
+        item_by_id: ContentItem | None,
+        item_by_url: ContentItem | None,
+    ) -> str:
+        for item in (item_by_id, item_by_url):
+            if item:
+                return get_original_source_name(item)
+        normalized = source.strip()
+        if normalized:
+            return normalized
+        return "Unknown"
 
     def _backfill_builder_candidates(
         self,

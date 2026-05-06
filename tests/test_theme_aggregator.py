@@ -29,9 +29,9 @@ class ThemeAggregatorValidationTest(unittest.TestCase):
                 ]
             }
         )
-        self.assertTrue(any("summary 不是中文句子" in issue for issue in issues))
-        self.assertTrue(any("evidence 1 不是中文" in issue for issue in issues))
-        self.assertTrue(any("缺少原始链接" in issue for issue in issues))
+        self.assertTrue(any("summary must be written in Chinese" in issue for issue in issues))
+        self.assertTrue(any("evidence 1 must be written in Chinese" in issue for issue in issues))
+        self.assertTrue(any("missing the original url" in issue for issue in issues))
 
     def test_collect_issues_flags_cross_theme_duplicate_url(self) -> None:
         aggregator = self._make_aggregator()
@@ -55,7 +55,7 @@ class ThemeAggregatorValidationTest(unittest.TestCase):
                 ]
             }
         )
-        self.assertTrue(any("重复使用了同一条原始发言" in issue for issue in issues))
+        self.assertTrue(any("reuses a post already used by theme 1" in issue for issue in issues))
 
     def test_collect_issues_flags_same_source_reuse_within_theme(self) -> None:
         aggregator = self._make_aggregator()
@@ -73,7 +73,7 @@ class ThemeAggregatorValidationTest(unittest.TestCase):
                 ]
             }
         )
-        self.assertTrue(any("Peter Steinberger 出现了 2 次" in issue for issue in issues))
+        self.assertTrue(any("repeats source Peter Steinberger 2 times" in issue for issue in issues))
 
     def test_empty_result_prefers_spotlight_text(self) -> None:
         aggregator = self._make_aggregator()
@@ -93,6 +93,23 @@ class ThemeAggregatorValidationTest(unittest.TestCase):
             payload["spotlight_posts"][0]["text"],
             "Peter Steinberger 现在让 Codex 在每次提交后自动审查代码，发现问题就继续修",
         )
+
+    def test_empty_result_rewrites_generic_x_source_from_url_mapping(self) -> None:
+        aggregator = self._make_aggregator()
+        payload = aggregator._empty_result(
+            [
+                {
+                    "content_id": "zara_x_1",
+                    "source": "X",
+                    "core_claim": "GBrain 发布了新版本",
+                    "spotlight_text": "GBrain 发布了新版本",
+                    "url": "https://x.com/garrytan/status/1",
+                }
+            ],
+            source_by_url={"https://x.com/garrytan/status/1": "Garry Tan"},
+            source_by_content_id={"zara_x_1": "Garry Tan"},
+        )
+        self.assertEqual(payload["spotlight_posts"][0]["source"], "Garry Tan")
 
 
 if __name__ == "__main__":

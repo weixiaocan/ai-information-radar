@@ -9,6 +9,7 @@ from typing import Any
 
 from src.models.content_item import ContentItem
 from src.utils.llm_client import DeepSeekClient
+from src.utils.source_labels import get_original_source_name
 
 LOGGER = logging.getLogger(__name__)
 
@@ -27,12 +28,14 @@ class ThemeAggregator:
             return {"themes": [], "discussion_dispersion": "dispersed", "spotlight_posts": []}
 
         signals = list(builder_hot_candidates or [])
+        source_by_url = {item.url: get_original_source_name(item) for item in today_items if item.url}
+        source_by_content_id = {item.content_id: get_original_source_name(item) for item in today_items}
         if not signals:
             return {"themes": [], "discussion_dispersion": "dispersed", "spotlight_posts": []}
 
         try:
             if len(signals) < 3:
-                return self._empty_result(signals)
+                return self._empty_result(signals, source_by_url, source_by_content_id)
 
             payload = self.client.daily_themes(
                 str(self.prompt_path),
@@ -46,7 +49,7 @@ class ThemeAggregator:
                     break
                 if attempt == max_attempts:
                     LOGGER.warning("Theme aggregation still invalid after %s attempts: %s", attempt, issues)
-                    return self._empty_result(signals)
+                    return self._empty_result(signals, source_by_url, source_by_content_id)
                 LOGGER.info("Theme aggregation failed validation on attempt %s; retrying with feedback: %s", attempt, issues)
                 payload = self.client.daily_themes(
                     str(self.prompt_path),
@@ -58,9 +61,9 @@ class ThemeAggregator:
             LOGGER.exception("Theme aggregation failed")
             return {"themes": [], "discussion_dispersion": "dispersed", "spotlight_posts": []}
 
-        normalized = self._normalize(payload)
+        normalized = self._normalize(payload, source_by_url, source_by_content_id)
         if not normalized.get("themes"):
-            return self._empty_result(signals)
+            return self._empty_result(signals, source_by_url, source_by_content_id)
         return normalized
 
     def _collect_issues(self, payload: dict[str, Any] | None) -> list[str]:
@@ -72,9 +75,9 @@ class ThemeAggregator:
             summary = str(theme.get("summary", "")).strip()
             if summary:
                 if self._looks_mostly_english(summary):
-                    issues.append(f"主题{theme_index}的 summary 不是中文句子，请改成自然中文")
+                    issues.append(f"Theme {theme_index} summary must be written in Chinese.")
                 if summary.count("，") >= 3:
-                    issues.append(f"主题{theme_index}的 summary 信息塞太满，请压成一个核心意思")
+                    issues.append(f"Theme {theme_index} summary is overloaded; compress it to one core idea.")
 
             source_counter: Counter[str] = Counter()
             for evidence_index, evidence in enumerate(theme.get("evidence", [])[:4], start=1):
@@ -84,18 +87,18 @@ class ThemeAggregator:
                 if source:
                     source_counter[source] += 1
                 if not excerpt:
-                    issues.append(f"主题{theme_index}的 evidence {evidence_index} 缺少 excerpt")
+                    issues.append(f"Theme {theme_index} evidence {evidence_index} is missing excerpt.")
                     continue
                 if self._looks_mostly_english(excerpt):
-                    issues.append(f"主题{theme_index}的 evidence {evidence_index} 不是中文，请改成中文事实句")
+                    issues.append(f"Theme {theme_index} evidence {evidence_index} must be written in Chinese.")
                 if len(excerpt) > 60:
-                    issues.append(f"主题{theme_index}的 evidence {evidence_index} 太长，请压到 60 字以内")
+                    issues.append(f"Theme {theme_index} evidence {evidence_index} is too long; keep it within 60 chars.")
                 if not url:
-                    issues.append(f"主题{theme_index}的 evidence {evidence_index} 缺少原始链接 url")
+                    issues.append(f"Theme {theme_index} evidence {evidence_index} is missing the original url.")
                     continue
                 if url in seen_urls:
                     issues.append(
-                        f"主题{theme_index}的 evidence {evidence_index} 与主题{seen_urls[url]}重复使用了同一条原始发言，请只保留在最契合的一个主题里"
+                        f"Theme {theme_index} evidence {evidence_index} reuses a post already used by theme {seen_urls[url]}."
                     )
                 else:
                     seen_urls[url] = theme_index
@@ -103,36 +106,49 @@ class ThemeAggregator:
             for source, count in source_counter.items():
                 if count > 1:
                     issues.append(
-                        f"主题{theme_index}中 {source} 出现了 {count} 次，请确认这些 evidence 是否提供不同维度的新信息；若只是同义重复，请合并为一条"
+                        f"Theme {theme_index} repeats source {source} {count} times; merge if they do not add distinct evidence."
                     )
         return issues
 
-    def _normalize(self, payload: dict[str, Any] | None) -> dict[str, Any]:
+    def _normalize(
+        self,
+        payload: dict[str, Any] | None,
+        source_by_url: dict[str, str],
+        source_by_content_id: dict[str, str],
+    ) -> dict[str, Any]:
         data = payload or {}
         themes: list[dict[str, Any]] = []
         for theme in data.get("themes", [])[:3]:
+            related_content_ids = [
+                str(content_id).strip()
+                for content_id in theme.get("related_content_ids", [])
+                if str(content_id).strip()
+            ]
             evidence_payloads = []
             for entry in theme.get("evidence", [])[:4]:
                 excerpt = str(entry.get("excerpt", "")).strip()
                 if not excerpt:
                     continue
+                url = str(entry.get("url", "")).strip()
                 evidence_payloads.append(
                     {
-                        "source": str(entry.get("source", "未知来源")).strip() or "未知来源",
+                        "source": self._resolve_source_name(
+                            str(entry.get("source", "")).strip(),
+                            url,
+                            related_content_ids,
+                            source_by_url,
+                            source_by_content_id,
+                        ),
                         "excerpt": excerpt,
-                        "url": str(entry.get("url", "")).strip(),
+                        "url": url,
                     }
                 )
             themes.append(
                 {
-                    "theme": str(theme.get("theme", "未命名主题")).strip() or "未命名主题",
+                    "theme": str(theme.get("theme", "Unnamed theme")).strip() or "Unnamed theme",
                     "summary": str(theme.get("summary", "")).strip(),
                     "evidence": evidence_payloads,
-                    "related_content_ids": [
-                        str(content_id).strip()
-                        for content_id in theme.get("related_content_ids", [])
-                        if str(content_id).strip()
-                    ],
+                    "related_content_ids": related_content_ids,
                 }
             )
         dispersion = str(data.get("discussion_dispersion", "dispersed")).strip() or "dispersed"
@@ -140,10 +156,21 @@ class ThemeAggregator:
             dispersion = "dispersed"
         return {"themes": themes, "discussion_dispersion": dispersion, "spotlight_posts": []}
 
-    def _empty_result(self, signals: list[dict[str, str]] | None = None) -> dict[str, Any]:
+    def _empty_result(
+        self,
+        signals: list[dict[str, str]] | None = None,
+        source_by_url: dict[str, str] | None = None,
+        source_by_content_id: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         spotlight_posts = [
             {
-                "source": signal["source"],
+                "source": self._resolve_source_name(
+                    str(signal.get("source", "")).strip(),
+                    str(signal.get("url", "")).strip(),
+                    [str(signal.get("content_id", "")).strip()],
+                    source_by_url or {},
+                    source_by_content_id or {},
+                ),
                 "text": signal.get("spotlight_text") or signal["core_claim"],
                 "url": signal["url"],
             }
@@ -155,6 +182,30 @@ class ThemeAggregator:
             "discussion_dispersion": "dispersed",
             "spotlight_posts": spotlight_posts,
         }
+
+    def _resolve_source_name(
+        self,
+        raw_source: str,
+        url: str,
+        related_content_ids: list[str],
+        source_by_url: dict[str, str],
+        source_by_content_id: dict[str, str],
+    ) -> str:
+        authoritative = source_by_url.get(url, "")
+        if not authoritative:
+            for content_id in related_content_ids:
+                authoritative = source_by_content_id.get(content_id, "")
+                if authoritative:
+                    break
+        if authoritative:
+            return authoritative
+        if raw_source and not self._is_generic_builder_source(raw_source):
+            return raw_source
+        return raw_source or "Unknown source"
+
+    def _is_generic_builder_source(self, source: str) -> bool:
+        normalized = re.sub(r"[^a-z]+", "", source.lower())
+        return normalized in {"x", "twitter", "tweet", "tweets", "builder", "builders", "xpost", "xposts"}
 
     def _looks_mostly_english(self, text: str) -> bool:
         ascii_letters = len(re.findall(r"[A-Za-z]", text))
