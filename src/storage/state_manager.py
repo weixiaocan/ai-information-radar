@@ -15,6 +15,7 @@ class StateManager:
         self.scores_path = state_dir / "scores.jsonl"
         self.heartbeat_path = state_dir / "heartbeat.log"
         self.transcript_failures_path = state_dir / "transcript_failures.jsonl"
+        self.invariant_warnings_path = state_dir / "invariant_warnings.jsonl"
         self.themes_dir = state_dir / "themes"
         self.selections_dir = state_dir / "selections"
         self.candidates_dir = state_dir / "candidates"
@@ -53,6 +54,10 @@ class StateManager:
 
     def append_transcript_failure(self, payload: dict[str, Any]) -> None:
         with self.transcript_failures_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+    def append_invariant_warning(self, payload: dict[str, Any]) -> None:
+        with self.invariant_warnings_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
     def save_stage_content_ids(self, stage: str, content_ids: list[str]) -> None:

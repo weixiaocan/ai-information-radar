@@ -261,6 +261,137 @@ class DailyDigestBuilderTest(unittest.TestCase):
         self.assertTrue(any("Aaron Levie" in text for text in card_texts))
 
 
+    def test_supplementary_candidates_can_repeat_url_when_content_id_differs(self) -> None:
+        payload = DailyDigestBuilder().build(
+            themes_data={"themes": [], "spotlight_posts": []},
+            selections_data={
+                "selections": [
+                    {
+                        "content_id": "rss_https://www.wired.com/story/i-work-in-hollywood-everyone-who-used-to-make-tv-now-training-ai/",
+                        "type": "article",
+                        "channel_or_source": "hacker_news_ai",
+                        "title": "I work in Hollywood. Everyone who used to make TV is now training AI",
+                        "url": "https://www.wired.com/story/i-work-in-hollywood-everyone-who-used-to-make-tv-now-training-ai/",
+                        "value_pitch": "picked",
+                    }
+                ]
+            },
+            stats={"total": 6},
+            candidates_data={
+                "editorial_top10": [
+                    {
+                        "content_id": "rss_https://news.ycombinator.com/item?id=48093446",
+                        "type": "article",
+                        "channel_or_source": "hacker_news_ai",
+                        "title": "I work in Hollywood. Everyone who used to make TV is now training AI",
+                        "url": "https://www.wired.com/story/i-work-in-hollywood-everyone-who-used-to-make-tv-now-training-ai/",
+                        "summary": "should be hidden",
+                    },
+                    {
+                        "content_id": "rss_https://example.com/another",
+                        "type": "article",
+                        "channel_or_source": "techcrunch_ai",
+                        "title": "Another story",
+                        "url": "https://example.com/another",
+                        "summary": "should remain",
+                    },
+                ]
+            },
+        )
+        card_texts = [
+            element.get("text", {}).get("content", "")
+            for element in payload["card"]["elements"]
+            if element.get("tag") == "div"
+        ]
+        self.assertTrue(any("should be hidden" in text for text in card_texts))
+        self.assertTrue(any("should remain" in text for text in card_texts))
+
+    def test_digest_builder_enforces_unique_content_ids_across_sections(self) -> None:
+        builder = DailyDigestBuilder()
+        selections, supplementary = builder._enforce_section_invariants(
+            selections=[
+                {
+                    "content_id": "rss_1",
+                    "type": "article",
+                    "channel_or_source": "simon_willison",
+                    "title": "A story",
+                    "url": "https://example.com/story",
+                    "value_pitch": "picked",
+                },
+                {
+                    "content_id": "rss_1",
+                    "type": "article",
+                    "channel_or_source": "simon_willison",
+                    "title": "A story duplicate",
+                    "url": "https://example.com/story",
+                    "value_pitch": "duplicate",
+                },
+            ],
+            supplementary_items=[
+                {
+                    "content_id": "rss_2",
+                    "type": "article",
+                    "source_name": "verge_ai",
+                    "title": "Same URL",
+                    "url": "https://example.com/story",
+                    "brief": "should drop",
+                },
+                {
+                    "content_id": "rss_3",
+                    "type": "article",
+                    "source_name": "verge_ai",
+                    "title": "Keep me",
+                    "url": "https://example.com/keep",
+                    "brief": "should keep",
+                },
+            ],
+        )
+        self.assertEqual(len(selections), 1)
+        self.assertEqual(len(supplementary), 2)
+        self.assertEqual(supplementary[0]["content_id"], "rss_2")
+        self.assertEqual(supplementary[1]["content_id"], "rss_3")
+
+    def test_digest_builder_warns_on_url_conflicts(self) -> None:
+        builder = DailyDigestBuilder()
+        with self.assertLogs("src.output.daily_digest", level="WARNING") as logs:
+            builder._warn_on_url_conflicts(
+                selections=[
+                    {
+                        "content_id": "rss_1",
+                        "url": "https://example.com/story",
+                    }
+                ],
+                supplementary_items=[
+                    {
+                        "content_id": "rss_2",
+                        "url": "https://example.com/story",
+                    }
+                ],
+            )
+        self.assertTrue(any("URL conflict detected" in entry for entry in logs.output))
+
+    def test_digest_builder_collects_structured_url_conflicts(self) -> None:
+        builder = DailyDigestBuilder()
+        warnings = builder.collect_url_conflicts(
+            selections=[
+                {
+                    "content_id": "rss_1",
+                    "url": "https://example.com/story",
+                }
+            ],
+            supplementary_items=[
+                {
+                    "content_id": "rss_2",
+                    "url": "https://example.com/story",
+                }
+            ],
+        )
+        self.assertEqual(len(warnings), 1)
+        self.assertEqual(warnings[0]["kind"], "daily_digest_url_conflict")
+        self.assertEqual(warnings[0]["first_content_id"], "rss_1")
+        self.assertEqual(warnings[0]["second_content_id"], "rss_2")
+
+
 class WeeklyDigestBuilderTest(unittest.TestCase):
     def test_weekly_digest_uses_original_source_names_for_historical_zara_items(self) -> None:
         client = Mock()

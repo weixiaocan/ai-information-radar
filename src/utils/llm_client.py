@@ -206,7 +206,7 @@ class DeepSeekClient:
         prompt_template = load_prompt(Path(prompt_path))
         candidates = [
             {
-                "content_id": item.content_id,
+                "candidate_index": index,
                 "type": "youtube" if item.source_type == "youtube" else "article",
                 "channel_or_source": get_original_source_name(item),
                 "title": item.title,
@@ -214,7 +214,7 @@ class DeepSeekClient:
                 "summary": item.ai_summary or item.body[:240],
                 "keywords": item.ai_keywords,
             }
-            for item in items
+            for index, item in enumerate(items, start=1)
             if item.source_type != "zara_x"
         ]
         prompt = prompt_template.format(

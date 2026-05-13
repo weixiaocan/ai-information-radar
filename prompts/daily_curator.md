@@ -28,11 +28,7 @@
 4. 不要选标题党或 clickbait
 
 每条输出：
-- `content_id`：原 ID
-- `type`：`youtube` 或 `article`
-- `channel_or_source`：频道名或来源名
-- `title`：原标题，不翻译
-- `url`：原文链接
+- `candidate_index`：候选池里对应的序号，只能从输入里的 `candidate_index` 原样复制
 - `value_pitch`：一个完整、通顺的中文句子，像在跟朋友说“这个内容讲什么的”
   - 必须有清晰的主谓结构
   - 一句话只表达一个核心意思，最多两个分句

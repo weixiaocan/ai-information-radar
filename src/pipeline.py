@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Any
 
 from src.models.content_item import ContentItem
 from src.output.daily_digest import DailyDigestBuilder
@@ -143,13 +144,26 @@ class Pipeline:
         themes_data = self.state_manager.load_daily_themes(day) if target_date else {"themes": [], "discussion_dispersion": "dispersed"}
         selections_data = self.state_manager.load_daily_selections(day) if target_date else {"selections": []}
         stats = {"total": len(daily_items)}
+        invariant_warnings = self.daily_builder.collect_invariant_warnings(
+            themes_data,
+            selections_data,
+            candidates_data,
+        )
+        for warning in invariant_warnings:
+            warning_payload: dict[str, Any] = {"day": day, **warning}
+            self.state_manager.append_invariant_warning(warning_payload)
         payload = self.daily_builder.build(themes_data, selections_data, stats, target_date=target_date, candidates_data=candidates_data)
         self._write_daily_report(themes_data, selections_data, stats, target_date, candidates_data)
         if deliver:
             self.feishu.send(payload)
         self.state_manager.write_heartbeat(
             "daily",
-            {"items": len(daily_items), "themes": len(themes_data.get("themes", [])), "selections": len(selections_data.get("selections", []))},
+            {
+                "items": len(daily_items),
+                "themes": len(themes_data.get("themes", [])),
+                "selections": len(selections_data.get("selections", [])),
+                "invariant_warnings": len(invariant_warnings),
+            },
         )
         return payload
 

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from datetime import date
 from pathlib import Path
 from typing import Any
 
 from src.utils.config import load_yaml
+
+LOGGER = logging.getLogger(__name__)
 
 
 class DailyDigestBuilder:
@@ -24,6 +27,8 @@ class DailyDigestBuilder:
         spotlight_posts = list(themes_payload.get("spotlight_posts", []))
         selections = list((selections_data or {}).get("selections", []))
         supplementary_items = self._build_supplementary_candidates(themes_payload, selections, candidates_data or {})
+        selections, supplementary_items = self._enforce_section_invariants(selections, supplementary_items)
+        self._warn_on_url_conflicts(selections, supplementary_items)
         stats_payload = stats or {"total": 0}
         digest_date = target_date or date.today()
         related_ids = {
@@ -128,6 +133,8 @@ class DailyDigestBuilder:
         spotlight_posts = list(themes_payload.get("spotlight_posts", []))
         selections = list((selections_data or {}).get("selections", []))
         supplementary_items = self._build_supplementary_candidates(themes_payload, selections, candidates_data or {})
+        selections, supplementary_items = self._enforce_section_invariants(selections, supplementary_items)
+        self._warn_on_url_conflicts(selections, supplementary_items)
         stats_payload = stats or {"total": 0}
         digest_date = target_date or date.today()
         weekday_cn = ["一", "二", "三", "四", "五", "六", "日"][digest_date.weekday()]
@@ -272,6 +279,91 @@ class DailyDigestBuilder:
                 break
 
         return supplementary
+
+    def _enforce_section_invariants(
+        self,
+        selections: list[dict[str, Any]],
+        supplementary_items: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        normalized_selections: list[dict[str, Any]] = []
+        selection_ids: set[str] = set()
+        for selection in selections:
+            content_id = str(selection.get("content_id", "")).strip()
+            if not content_id:
+                continue
+            if content_id in selection_ids:
+                continue
+            normalized_selections.append(selection)
+            selection_ids.add(content_id)
+
+        normalized_supplementary: list[dict[str, Any]] = []
+        supplementary_ids: set[str] = set()
+        for item in supplementary_items:
+            content_id = str(item.get("content_id", "")).strip()
+            if content_id and content_id in selection_ids:
+                continue
+            if content_id and content_id in supplementary_ids:
+                continue
+            normalized_supplementary.append(item)
+            if content_id:
+                supplementary_ids.add(content_id)
+
+        return normalized_selections, normalized_supplementary
+
+    def _warn_on_url_conflicts(
+        self,
+        selections: list[dict[str, Any]],
+        supplementary_items: list[dict[str, Any]],
+    ) -> None:
+        for warning in self.collect_url_conflicts(selections, supplementary_items):
+            LOGGER.warning(
+                "Daily digest URL conflict detected: url=%s first_content_id=%s second_content_id=%s second_section=%s",
+                warning["url"],
+                warning["first_content_id"],
+                warning["second_content_id"],
+                warning["second_section"],
+            )
+
+    def collect_invariant_warnings(
+        self,
+        themes_data: dict[str, Any] | None,
+        selections_data: dict[str, Any] | None,
+        candidates_data: dict[str, Any] | None,
+    ) -> list[dict[str, str]]:
+        themes_payload = themes_data or {}
+        selections = list((selections_data or {}).get("selections", []))
+        supplementary_items = self._build_supplementary_candidates(themes_payload, selections, candidates_data or {})
+        selections, supplementary_items = self._enforce_section_invariants(selections, supplementary_items)
+        return self.collect_url_conflicts(selections, supplementary_items)
+
+    def collect_url_conflicts(
+        self,
+        selections: list[dict[str, Any]],
+        supplementary_items: list[dict[str, Any]],
+    ) -> list[dict[str, str]]:
+        warnings: list[dict[str, str]] = []
+        seen_by_url: dict[str, tuple[str, str]] = {}
+        for section_name, items in (("selection", selections), ("supplementary", supplementary_items)):
+            for item in items:
+                url = str(item.get("url", "")).strip()
+                content_id = str(item.get("content_id", "")).strip()
+                if not url or not content_id:
+                    continue
+                previous = seen_by_url.get(url)
+                if previous and previous[0] != content_id:
+                    warnings.append(
+                        {
+                            "kind": "daily_digest_url_conflict",
+                            "url": url,
+                            "first_content_id": previous[0],
+                            "first_section": previous[1],
+                            "second_content_id": content_id,
+                            "second_section": section_name,
+                        }
+                    )
+                    continue
+                seen_by_url[url] = (content_id, section_name)
+        return warnings
 
     def _render_evidence_line(self, evidence: dict[str, Any]) -> str:
         source = str(evidence.get("source", "未知来源")).strip() or "未知来源"

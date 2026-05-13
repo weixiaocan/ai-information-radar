@@ -114,6 +114,57 @@ class PipelineHelpersTest(unittest.TestCase):
         self.assertEqual(stats["total"], 1)
         self.assertEqual(payload, {"msg_type": "interactive"})
 
+    def test_daily_persists_invariant_warnings(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        target_item = ContentItem(
+            content_id="rss_target",
+            source_type="rss",
+            source_name="simon_willison",
+            title="Target",
+            url="https://example.com/target",
+            author="Simon",
+            published_at=datetime(2026, 5, 3, 12, tzinfo=timezone.utc),
+            fetched_at=datetime(2026, 5, 4, 1, tzinfo=timezone.utc),
+            body="Target body",
+            body_type="article",
+        )
+        pipeline._load_stage_items = Mock(return_value=[target_item])
+        pipeline.transcript_store = Mock()
+        pipeline.transcript_store.load_available_dates.return_value = [date(2026, 5, 3)]
+        pipeline.transcript_store.load_by_date.return_value = [target_item]
+        pipeline.state_manager = Mock()
+        pipeline.state_manager.load_daily_candidates.return_value = {"builder_hot_candidates": [], "editorial_candidates": []}
+        pipeline.state_manager.load_daily_themes.return_value = {"themes": [], "discussion_dispersion": "dispersed"}
+        pipeline.state_manager.load_daily_selections.return_value = {"selections": []}
+        pipeline.state_manager.write_heartbeat = Mock()
+        pipeline.state_manager.append_invariant_warning = Mock()
+        pipeline.daily_builder = Mock()
+        pipeline.daily_builder.collect_invariant_warnings.return_value = [
+            {
+                "kind": "daily_digest_url_conflict",
+                "url": "https://example.com/conflict",
+                "first_content_id": "rss_1",
+                "first_section": "selection",
+                "second_content_id": "rss_2",
+                "second_section": "supplementary",
+            }
+        ]
+        pipeline.daily_builder.build.return_value = {"msg_type": "interactive"}
+        pipeline._write_daily_report = Mock()
+        pipeline.feishu = Mock()
+
+        with unittest.mock.patch("src.pipeline.date") as mock_date:
+            mock_date.today.return_value = date(2026, 5, 4)
+            mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+            payload = Pipeline.daily(pipeline, deliver=False)
+
+        pipeline.state_manager.append_invariant_warning.assert_called_once()
+        warning_payload = pipeline.state_manager.append_invariant_warning.call_args.args[0]
+        self.assertEqual(warning_payload["day"], "2026-05-03")
+        heartbeat_metadata = pipeline.state_manager.write_heartbeat.call_args.args[1]
+        self.assertEqual(heartbeat_metadata["invariant_warnings"], 1)
+        self.assertEqual(payload, {"msg_type": "interactive"})
+
     def test_compute_x_mentions_matches_video_id_and_url(self) -> None:
         youtube_item = ContentItem(
             content_id="youtube_abc",
@@ -260,6 +311,79 @@ class PipelineHelpersTest(unittest.TestCase):
         filtered = builder._filter_editorial_candidates(raw_candidates)
         self.assertEqual(len(filtered), 2)
         self.assertEqual([item["content_id"] for item in filtered], ["rss_1", "rss_3"])
+
+    def test_daily_curator_maps_candidate_index_back_to_candidate_item(self) -> None:
+        client = Mock()
+        client.daily_selections.return_value = {
+            "selections": [
+                {
+                    "candidate_index": 1,
+                    "value_pitch": "Hollywood writers are being pulled into AI training work.",
+                }
+            ],
+            "selection_diversity": "diverse",
+        }
+        curator = DailyCurator(client=client, prompt_path=Path("prompts/daily_curator.md"))
+        candidate_items = [
+            ContentItem(
+                content_id="rss_https://news.ycombinator.com/item?id=48093446",
+                source_type="rss",
+                source_name="hacker_news_ai",
+                title="I work in Hollywood. Everyone who used to make TV is now training AI",
+                url="https://www.wired.com/story/i-work-in-hollywood-everyone-who-used-to-make-tv-now-training-ai/",
+                author="joozio",
+                published_at=datetime(2026, 5, 11, tzinfo=timezone.utc),
+                fetched_at=datetime(2026, 5, 11, 1, tzinfo=timezone.utc),
+                body="Body",
+                body_type="article",
+            )
+        ]
+
+        payload = curator.curate_daily(candidate_items, set())
+
+        self.assertEqual(
+            payload["selections"][0]["content_id"],
+            "rss_https://news.ycombinator.com/item?id=48093446",
+        )
+        self.assertEqual(
+            payload["selections"][0]["title"],
+            "I work in Hollywood. Everyone who used to make TV is now training AI",
+        )
+        self.assertEqual(
+            payload["selections"][0]["url"],
+            "https://www.wired.com/story/i-work-in-hollywood-everyone-who-used-to-make-tv-now-training-ai/",
+        )
+
+    def test_daily_curator_drops_invalid_candidate_index_and_empty_value_pitch(self) -> None:
+        client = Mock()
+        client.daily_selections.return_value = {
+            "selections": [
+                {"candidate_index": "1", "value_pitch": "should be ignored"},
+                {"candidate_index": 1, "value_pitch": "   "},
+                {"candidate_index": 1, "value_pitch": "valid pitch"},
+            ],
+            "selection_diversity": "diverse",
+        }
+        curator = DailyCurator(client=client, prompt_path=Path("prompts/daily_curator.md"))
+        candidate_items = [
+            ContentItem(
+                content_id="rss_1",
+                source_type="rss",
+                source_name="simon_willison",
+                title="A story",
+                url="https://example.com/story",
+                author="Simon",
+                published_at=datetime(2026, 5, 11, tzinfo=timezone.utc),
+                fetched_at=datetime(2026, 5, 11, 1, tzinfo=timezone.utc),
+                body="Body",
+                body_type="article",
+            )
+        ]
+
+        payload = curator.curate_daily(candidate_items, set())
+
+        self.assertEqual(len(payload["selections"]), 1)
+        self.assertEqual(payload["selections"][0]["value_pitch"], "valid pitch")
 
     def test_daily_candidate_builder_ranks_and_limits_top10(self) -> None:
         builder = DailyCandidateBuilder(client=Mock(), signal_prompt_path=Path("prompts/theme_signal_extractor.md"))
