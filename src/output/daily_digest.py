@@ -61,6 +61,13 @@ class DailyDigestBuilder:
             )
             for post in spotlight_posts:
                 elements.append({"tag": "div", "text": {"tag": "lark_md", "content": self._render_spotlight_line(post)}})
+        elif str(themes_payload.get("degraded_reason", "")).strip() == "builder_source_fetch_failed":
+            elements.append(
+                {
+                    "tag": "div",
+                    "text": {"tag": "lark_md", "content": "**今日热议**\n_builder/X 信号源抓取失败，今日热议暂未生成_"},
+                }
+            )
         else:
             elements.append(
                 {
@@ -164,6 +171,9 @@ class DailyDigestBuilder:
             for post in spotlight_posts:
                 lines.append(self._render_markdown_spotlight_line(post))
             lines.append("")
+        elif str(themes_payload.get("degraded_reason", "")).strip() == "builder_source_fetch_failed":
+            lines.append("_builder/X 信号源抓取失败，今日热议暂未生成_")
+            lines.append("")
         else:
             lines.append("_今日 builder 圈讨论较为分散，无集中主题_")
             lines.append("")
@@ -202,6 +212,9 @@ class DailyDigestBuilder:
         selections: list[dict[str, Any]],
         candidates_data: dict[str, Any],
     ) -> list[dict[str, Any]]:
+        themes = list(themes_payload.get("themes", []))
+        spotlight_posts = list(themes_payload.get("spotlight_posts", []))
+        supplementary_spotlight_posts = list(themes_payload.get("supplementary_spotlight_posts", []))
         displayed_selection_ids = {
             str(selection.get("content_id", "")).strip()
             for selection in selections
@@ -209,24 +222,25 @@ class DailyDigestBuilder:
         }
         displayed_builder_urls = {
             str(post.get("url", "")).strip()
-            for post in themes_payload.get("spotlight_posts", [])
+            for post in spotlight_posts
             if str(post.get("url", "")).strip()
         }
         displayed_builder_urls.update(
             str(evidence.get("url", "")).strip()
-            for theme in themes_payload.get("themes", [])
+            for theme in themes
             for evidence in theme.get("evidence", [])
             if str(evidence.get("url", "")).strip()
         )
         related_ids = {
             str(content_id).strip()
-            for theme in themes_payload.get("themes", [])
+            for theme in themes
             for content_id in theme.get("related_content_ids", [])
             if str(content_id).strip()
         }
 
         supplementary: list[dict[str, Any]] = []
         source_counts: dict[str, int] = {}
+        supplementary_limit = 10 if (not themes and spotlight_posts) else 5
 
         editorial_pool = candidates_data.get("editorial_top10") or candidates_data.get("editorial_candidates", [])
         for max_per_source in (1, 2):
@@ -252,7 +266,7 @@ class DailyDigestBuilder:
                     }
                 )
                 source_counts[source_name] = source_counts.get(source_name, 0) + 1
-                if len(supplementary) >= 5:
+                if len(supplementary) >= supplementary_limit:
                     return supplementary
 
         for candidate in candidates_data.get("builder_hot_candidates", []):
@@ -275,7 +289,28 @@ class DailyDigestBuilder:
                     ),
                 }
             )
-            if len(supplementary) >= 5:
+            if len(supplementary) >= supplementary_limit:
+                break
+
+        for post in supplementary_spotlight_posts:
+            url = str(post.get("url", "")).strip()
+            source_name = str(post.get("source", "")).strip()
+            if not url or not source_name:
+                continue
+            if url in displayed_builder_urls:
+                continue
+            if any(item.get("url") == url for item in supplementary):
+                continue
+            supplementary.append(
+                {
+                    "type": "builder",
+                    "source_name": source_name,
+                    "title": "",
+                    "url": url,
+                    "brief": self._strip_terminal_punctuation(str(post.get("text", "")).strip()),
+                }
+            )
+            if len(supplementary) >= supplementary_limit:
                 break
 
         return supplementary

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -13,30 +15,102 @@ from src.utils.time_utils import utc_days_ago, utc_now
 LOGGER = logging.getLogger(__name__)
 
 
+@dataclass
+class ZaraFetchReport:
+    feed_name: str
+    status: str
+    attempts: int
+    items_fetched: int
+    error: str = ""
+
+
 class ZaraFetcher:
     def __init__(self, feeds: list[dict[str, Any]], timeout_seconds: int) -> None:
         self.feeds = feeds
         self.timeout_seconds = timeout_seconds
+        self.retry_attempts = 4
+        self.retry_delays_seconds = (60, 180, 600)
+        self.last_fetch_reports: list[ZaraFetchReport] = []
 
     def fetch(self, seen_ids: set[str], recent_days: int) -> list[ContentItem]:
         results: list[ContentItem] = []
         cutoff = utc_days_ago(recent_days)
+        self.last_fetch_reports = []
         for feed in self.feeds:
             if not feed.get("enabled", True):
                 continue
+            items, report = self._fetch_single_feed(feed, seen_ids, cutoff)
+            results.extend(items)
+            self.last_fetch_reports.append(report)
+        LOGGER.info("Fetched %s new Zara items", len(results))
+        return results
+
+    def _fetch_single_feed(
+        self,
+        feed: dict[str, Any],
+        seen_ids: set[str],
+        cutoff: datetime,
+    ) -> tuple[list[ContentItem], ZaraFetchReport]:
+        attempts = 0
+        last_error = ""
+        feed_name = str(feed.get("name", "unknown"))
+
+        for attempt in range(1, self.retry_attempts + 1):
+            attempts = attempt
             try:
                 response = requests.get(feed["url"], timeout=self.timeout_seconds)
                 response.raise_for_status()
                 payload = response.json()
-                for entry in self._extract_entries(feed["name"], payload):
+                items: list[ContentItem] = []
+                for entry in self._extract_entries(feed_name, payload):
                     item = self._to_content_item(feed, entry)
                     if item.content_id in seen_ids or item.published_at < cutoff:
                         continue
-                    results.append(item)
+                    items.append(item)
+                status = "success" if items else "empty"
+                return items, ZaraFetchReport(
+                    feed_name=feed_name,
+                    status=status,
+                    attempts=attempts,
+                    items_fetched=len(items),
+                )
             except Exception as exc:
-                LOGGER.warning("Failed to fetch Zara feed %s: %s", feed.get("name"), exc)
-        LOGGER.info("Fetched %s new Zara items", len(results))
-        return results
+                last_error = str(exc)
+                retryable = self._is_retryable_exception(exc)
+                if attempt >= self.retry_attempts or not retryable:
+                    LOGGER.warning("Failed to fetch Zara feed %s after %s attempt(s): %s", feed_name, attempt, exc)
+                    return [], ZaraFetchReport(
+                        feed_name=feed_name,
+                        status="failed",
+                        attempts=attempts,
+                        items_fetched=0,
+                        error=last_error,
+                    )
+                delay = self.retry_delays_seconds[min(attempt - 1, len(self.retry_delays_seconds) - 1)]
+                LOGGER.warning(
+                    "Failed to fetch Zara feed %s on attempt %s/%s: %s; retrying in %ss",
+                    feed_name,
+                    attempt,
+                    self.retry_attempts,
+                    exc,
+                    delay,
+                )
+                time.sleep(delay)
+
+        return [], ZaraFetchReport(
+            feed_name=feed_name,
+            status="failed",
+            attempts=attempts,
+            items_fetched=0,
+            error=last_error,
+        )
+
+    def _is_retryable_exception(self, exc: Exception) -> bool:
+        if isinstance(exc, (requests.Timeout, requests.ConnectionError)):
+            return True
+        if isinstance(exc, requests.HTTPError) and exc.response is not None:
+            return exc.response.status_code >= 500
+        return False
 
     def _extract_entries(self, feed_name: str, payload: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
         if isinstance(payload, list):

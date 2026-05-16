@@ -10,6 +10,7 @@ from src.processing.daily_curator import DailyCurator
 from src.processing.theme_aggregator import ThemeAggregator
 from src.storage.state_manager import StateManager
 from src.pipeline import Pipeline
+from src.ingestion.zara_fetcher import ZaraFetchReport
 
 
 class PipelineHelpersTest(unittest.TestCase):
@@ -728,6 +729,85 @@ class PipelineHelpersTest(unittest.TestCase):
             import shutil
 
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_safe_fetch_zara_writes_heartbeat_for_failed_feed(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline.settings = Mock()
+        pipeline.settings.request_timeout_seconds = 30
+        pipeline.state_manager = Mock()
+
+        fetcher = Mock()
+        fetcher.fetch.return_value = []
+        fetcher.last_fetch_reports = [
+            ZaraFetchReport(
+                feed_name="zara_x",
+                status="failed",
+                attempts=3,
+                items_fetched=0,
+                error="timeout",
+            )
+        ]
+        fetcher_cls = Mock(return_value=fetcher)
+
+        items = Pipeline._safe_fetch_zara(
+            pipeline,
+            fetcher_cls,
+            [{"name": "zara_x", "url": "https://example.com/feed-x.json"}],
+            set(),
+            1,
+        )
+
+        self.assertEqual(items, [])
+        pipeline.state_manager.write_heartbeat.assert_called_once_with(
+            "ingest_warning",
+            {
+                "source": "zara_x",
+                "error": "timeout",
+                "attempts": 3,
+                "status": "failed",
+            },
+        )
+
+    def test_daily_curate_marks_builder_fetch_failure_on_empty_hot_section(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        target_item = ContentItem(
+            content_id="rss_1",
+            source_type="rss",
+            source_name="simon_willison",
+            title="Story",
+            url="https://example.com/story",
+            author="Simon",
+            published_at=datetime(2026, 5, 3, 12, tzinfo=timezone.utc),
+            fetched_at=datetime(2026, 5, 4, 1, tzinfo=timezone.utc),
+            body="Story body",
+            body_type="article",
+        )
+        pipeline._load_stage_items = Mock(return_value=[target_item])
+        pipeline._resolve_daily_target_date = Mock(return_value=date(2026, 5, 3))
+        pipeline._load_items_for_target_date = Mock(return_value=[target_item])
+        pipeline.daily_candidate_builder = Mock()
+        pipeline.daily_candidate_builder.build.return_value = {
+            "builder_hot_candidates": [],
+            "editorial_top10": [],
+            "editorial_candidates": [],
+        }
+        pipeline.theme_aggregator = Mock()
+        pipeline.theme_aggregator.aggregate_themes.return_value = {
+            "themes": [],
+            "discussion_dispersion": "dispersed",
+            "spotlight_posts": [],
+        }
+        pipeline.daily_curator = Mock()
+        pipeline.daily_curator.curate_daily.return_value = {"selections": [], "selection_diversity": ""}
+        pipeline.state_manager = Mock()
+        pipeline.state_manager.load_latest_source_statuses.return_value = {
+            "zara_x": {"status": "failed", "attempts": 3, "items_fetched": 0, "error": "timeout"}
+        }
+
+        payload = Pipeline.daily_curate(pipeline)
+
+        self.assertEqual(payload["themes"]["degraded_reason"], "builder_source_fetch_failed")
+        self.assertEqual(payload["themes"]["degraded_source"], "zara_x")
 
 
 if __name__ == "__main__":

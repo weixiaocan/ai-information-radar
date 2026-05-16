@@ -17,7 +17,7 @@ class DailyCandidateBuilder:
     editorial_top_n: int = 10
     per_source_limit: int = 2
     per_topic_limit: int = 1
-    builder_spotlight_target: int = 4
+    builder_candidate_limit: int = 10
 
     def build(self, today_items: list[ContentItem]) -> dict[str, Any]:
         builder_items = [item for item in today_items if item.source_type == "zara_x"]
@@ -82,9 +82,7 @@ class DailyCandidateBuilder:
                 }
             )
 
-        if len(candidates) < 3:
-            candidates = self._backfill_builder_candidates(builder_items, candidates)
-        return candidates
+        return candidates[: self.builder_candidate_limit]
 
     def _resolve_builder_source(
         self,
@@ -109,7 +107,7 @@ class DailyCandidateBuilder:
         existing_urls = {candidate["url"] for candidate in candidates}
 
         for item in builder_items:
-            if len(candidates) >= self.builder_spotlight_target:
+            if len(candidates) >= self.builder_candidate_limit:
                 break
             if item.content_id in existing_ids or item.url in existing_urls:
                 continue

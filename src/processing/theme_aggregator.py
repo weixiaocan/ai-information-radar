@@ -154,7 +154,12 @@ class ThemeAggregator:
         dispersion = str(data.get("discussion_dispersion", "dispersed")).strip() or "dispersed"
         if not themes:
             dispersion = "dispersed"
-        return {"themes": themes, "discussion_dispersion": dispersion, "spotlight_posts": []}
+        return {
+            "themes": themes,
+            "discussion_dispersion": dispersion,
+            "spotlight_posts": [],
+            "supplementary_spotlight_posts": [],
+        }
 
     def _empty_result(
         self,
@@ -162,7 +167,7 @@ class ThemeAggregator:
         source_by_url: dict[str, str] | None = None,
         source_by_content_id: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        spotlight_posts = [
+        ranked_posts = [
             {
                 "source": self._resolve_source_name(
                     str(signal.get("source", "")).strip(),
@@ -174,13 +179,14 @@ class ThemeAggregator:
                 "text": signal.get("spotlight_text") or signal["core_claim"],
                 "url": signal["url"],
             }
-            for signal in (signals or [])[:4]
+            for signal in (signals or [])[:10]
             if signal.get("source") and signal.get("url") and (signal.get("spotlight_text") or signal.get("core_claim"))
         ]
         return {
             "themes": [],
             "discussion_dispersion": "dispersed",
-            "spotlight_posts": spotlight_posts,
+            "spotlight_posts": ranked_posts[:5],
+            "supplementary_spotlight_posts": ranked_posts[5:10],
         }
 
     def _resolve_source_name(

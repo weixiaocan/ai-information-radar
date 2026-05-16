@@ -261,6 +261,23 @@ class DailyDigestBuilderTest(unittest.TestCase):
         self.assertTrue(any("Aaron Levie" in text for text in card_texts))
 
 
+    def test_daily_digest_shows_fetch_failure_message_when_builder_source_failed(self) -> None:
+        payload = DailyDigestBuilder().build(
+            themes_data={
+                "themes": [],
+                "spotlight_posts": [],
+                "degraded_reason": "builder_source_fetch_failed",
+            },
+            selections_data={"selections": []},
+            stats={"total": 0},
+        )
+        card_texts = [
+            element.get("text", {}).get("content", "")
+            for element in payload["card"]["elements"]
+            if element.get("tag") == "div"
+        ]
+        self.assertTrue(any("builder/X 信号源抓取失败" in text for text in card_texts))
+
     def test_supplementary_candidates_can_repeat_url_when_content_id_differs(self) -> None:
         payload = DailyDigestBuilder().build(
             themes_data={"themes": [], "spotlight_posts": []},

@@ -68,6 +68,7 @@ class Pipeline:
             self.state_manager,
         )
         self.feishu = FeishuDelivery(settings.feishu_webhook_url, settings.request_timeout_seconds)
+        self._last_zara_fetch_reports: list[Any] = []
 
     def ingest(self, recent_days_override: int | None = None, ignore_seen: bool = False) -> list[ContentItem]:
         from src.ingestion.rss_fetcher import RSSFetcher
@@ -98,6 +99,11 @@ class Pipeline:
         rss_items = self._safe_fetch_rss(RSSFetcher, rss_sources, effective_seen_ids, recent_days)
         web_items = self._safe_fetch_web(WebFetcher, web_sources, effective_seen_ids, recent_days)
         zara_items = self._safe_fetch_zara(ZaraFetcher, zara_feeds, effective_seen_ids, recent_days)
+        self.state_manager.save_latest_source_statuses(
+            {
+                "zara_x": self._summarize_zara_source_status("zara_x"),
+            }
+        )
         items = youtube_items + playlist_items + rss_items + web_items + zara_items
         self.transcript_store.save_many(items)
         seen_ids.update(item.content_id for item in items)
@@ -181,6 +187,15 @@ class Pipeline:
         }
         editorial_items = [item for item in daily_items if item.content_id in editorial_candidate_ids]
         themes_data = self.theme_aggregator.aggregate_themes(daily_items, builder_hot_candidates)
+        latest_source_statuses = self.state_manager.load_latest_source_statuses()
+        zara_x_status = latest_source_statuses.get("zara_x", {})
+        if (
+            not themes_data.get("themes")
+            and not themes_data.get("spotlight_posts")
+            and str(zara_x_status.get("status", "")).strip() == "failed"
+        ):
+            themes_data["degraded_reason"] = "builder_source_fetch_failed"
+            themes_data["degraded_source"] = "zara_x"
         exclude_ids: set[str] = set()
         for theme in themes_data.get("themes", []):
             exclude_ids.update(theme.get("related_content_ids", []))
@@ -264,10 +279,43 @@ class Pipeline:
 
     def _safe_fetch_zara(self, fetcher_cls, zara_feeds: list[dict], seen_ids: set[str], recent_days: int) -> list[ContentItem]:
         try:
-            return fetcher_cls(zara_feeds, self.settings.request_timeout_seconds).fetch(seen_ids, recent_days)
+            fetcher = fetcher_cls(zara_feeds, self.settings.request_timeout_seconds)
+            items = fetcher.fetch(seen_ids, recent_days)
+            self._last_zara_fetch_reports = list(getattr(fetcher, "last_fetch_reports", []))
+            for report in getattr(fetcher, "last_fetch_reports", []):
+                if getattr(report, "status", "") != "failed":
+                    continue
+                self.state_manager.write_heartbeat(
+                    "ingest_warning",
+                    {
+                        "source": report.feed_name,
+                        "error": report.error,
+                        "attempts": report.attempts,
+                        "status": report.status,
+                    },
+                )
+            return items
         except Exception as exc:
+            self._last_zara_fetch_reports = []
             self.state_manager.write_heartbeat("ingest_warning", {"source": "zara", "error": str(exc)})
             return []
+
+    def _summarize_zara_source_status(self, feed_name: str) -> dict[str, Any]:
+        for report in self._last_zara_fetch_reports:
+            if getattr(report, "feed_name", "") != feed_name:
+                continue
+            return {
+                "status": getattr(report, "status", ""),
+                "attempts": getattr(report, "attempts", 0),
+                "items_fetched": getattr(report, "items_fetched", 0),
+                "error": getattr(report, "error", ""),
+            }
+        return {
+            "status": "unavailable",
+            "attempts": 0,
+            "items_fetched": 0,
+            "error": "",
+        }
 
     def _fetch_transcripts_for_finalists(self, finalists: list[ContentItem]) -> list[ContentItem]:
         for item in finalists:

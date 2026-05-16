@@ -16,6 +16,7 @@ class StateManager:
         self.heartbeat_path = state_dir / "heartbeat.log"
         self.transcript_failures_path = state_dir / "transcript_failures.jsonl"
         self.invariant_warnings_path = state_dir / "invariant_warnings.jsonl"
+        self.source_status_path = state_dir / "latest_source_status.json"
         self.themes_dir = state_dir / "themes"
         self.selections_dir = state_dir / "selections"
         self.candidates_dir = state_dir / "candidates"
@@ -59,6 +60,17 @@ class StateManager:
     def append_invariant_warning(self, payload: dict[str, Any]) -> None:
         with self.invariant_warnings_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+    def save_latest_source_statuses(self, payload: dict[str, Any]) -> None:
+        self.source_status_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def load_latest_source_statuses(self) -> dict[str, Any]:
+        if not self.source_status_path.exists():
+            return {}
+        return json.loads(self.source_status_path.read_text(encoding="utf-8"))
 
     def save_stage_content_ids(self, stage: str, content_ids: list[str]) -> None:
         path = self.stage_batches[stage]
