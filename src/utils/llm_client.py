@@ -16,6 +16,11 @@ from src.utils.source_labels import get_original_source_name
 LOGGER = logging.getLogger(__name__)
 
 
+class _SafePromptDict(dict[str, Any]):
+    def __missing__(self, key: str) -> str:
+        return "{" + key + "}"
+
+
 @dataclass
 class DeepSeekClient:
     api_key: str
@@ -227,7 +232,7 @@ class DeepSeekClient:
         prompt_template = load_prompt(Path(prompt_path))
         scores = item.ai_score or {}
         reasons = item.ai_score_reasons or {}
-        prompt = prompt_template.format(
+        prompt_values = _SafePromptDict(
             rank=rank,
             title=item.title,
             channel_name=get_original_source_name(item),
@@ -247,6 +252,7 @@ class DeepSeekClient:
             reason_popularity=reasons.get("popularity", ""),
             source_text=item.body[:24000],
         )
+        prompt = prompt_template.format_map(prompt_values)
         return self._chat_completion(
             prompt,
             model="deepseek-chat",
