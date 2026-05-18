@@ -1,7 +1,7 @@
 param(
     [string]$TaskPrefix = "AI Radar",
     [string]$PythonExe = "",
-    [string]$RunAsUser = "SYSTEM",
+    [string]$RunAsUser = "",
     [string]$DailyTime = "08:00",
     [string]$IngestTime = "07:00",
     [string]$Tier1Time = "07:30",
@@ -29,6 +29,10 @@ if (-not (Test-Path $runScript)) {
 
 if ([string]::IsNullOrWhiteSpace($resolvedPythonExe) -or -not (Test-Path $resolvedPythonExe)) {
     throw "Python executable not found. Pass -PythonExe or create .venv first."
+}
+
+if ([string]::IsNullOrWhiteSpace($RunAsUser)) {
+    $RunAsUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 }
 
 function Register-AIRadarTask {

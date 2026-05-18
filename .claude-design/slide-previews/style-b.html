@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Style B - Bold Signal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Grotesk:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #171717;
+        --panel: #ff6b2d;
+        --text: #f6f2ea;
+        --ink: #16120f;
+        --muted: rgba(246, 242, 234, 0.72);
+        --title-size: clamp(2rem, 5.6vw, 4.6rem);
+        --body-size: clamp(0.82rem, 1.2vw, 1rem);
+        --small-size: clamp(0.68rem, 0.9vw, 0.82rem);
+        --slide-padding: clamp(1rem, 4vw, 4rem);
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body { height: 100%; overflow-x: hidden; }
+      body {
+        font-family: "Space Grotesk", sans-serif;
+        background:
+          radial-gradient(circle at 82% 20%, rgba(255, 107, 45, 0.18), transparent 18%),
+          linear-gradient(135deg, #111111 0%, #202020 52%, #151515 100%);
+        color: var(--text);
+      }
+      .slide {
+        width: 100vw;
+        height: 100vh;
+        height: 100dvh;
+        overflow: hidden;
+        display: grid;
+        grid-template-columns: 1.05fr 0.95fr;
+        gap: 1rem;
+        padding: var(--slide-padding);
+      }
+      .left {
+        background: var(--panel);
+        color: var(--ink);
+        border-radius: 2rem;
+        padding: 1.3rem;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+      .number {
+        font-size: clamp(1rem, 1.4vw, 1.2rem);
+        letter-spacing: 0.18em;
+      }
+      h1 {
+        font-family: "Archivo Black", sans-serif;
+        font-size: var(--title-size);
+        line-height: 0.9;
+        max-width: 7ch;
+      }
+      .right {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        padding: 0.5rem 0 0.5rem 0.8rem;
+      }
+      .meta {
+        display: flex;
+        justify-content: space-between;
+        font-size: var(--small-size);
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .summary {
+        display: flex;
+        flex-direction: column;
+        gap: 0.9rem;
+      }
+      .summary p {
+        font-size: var(--body-size);
+        line-height: 1.6;
+        max-width: 28rem;
+      }
+      .rail {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.65rem;
+      }
+      .rail div {
+        border-top: 1px solid rgba(246, 242, 234, 0.16);
+        padding-top: 0.7rem;
+        font-size: var(--small-size);
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <section class="slide">
+      <div class="left">
+        <span class="number">01</span>
+        <h1>AI 硬件浪潮才刚开始</h1>
+        <p>不是产品点评，而是一套硬件世界如何判断机会的框架。</p>
+      </div>
+      <div class="right">
+        <div class="meta">
+          <span>AI Radar / Full Content</span>
+          <span>Style B · Bold Signal</span>
+        </div>
+        <div class="summary">
+          <p>这个方向更像强结论型演示：大标题占主视觉，右侧留给 2 到 3 条解释和结构标签，适合把播客结论做得更像 conference talk。</p>
+          <div class="rail">
+            <div>VR 遗产</div>
+            <div>机器人瓶颈</div>
+            <div>供应链命门</div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </body>
+</html>

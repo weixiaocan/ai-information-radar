@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import getpass
 import logging
+import os
 import re
+import sys
 from datetime import datetime
 from typing import Any
 from urllib.parse import urlparse
+from urllib.request import getproxies
 
 import requests
 
@@ -20,6 +24,7 @@ class YouTubeFetcher:
             raise RuntimeError("YOUTUBE_API_KEY is not configured")
         self.api_key = api_key
         self.timeout_seconds = timeout_seconds
+        self._runtime_diagnostics_logged = False
 
     def fetch(
         self,
@@ -29,51 +34,61 @@ class YouTubeFetcher:
         max_results_per_channel: int = 20,
         min_duration_minutes: int = 25,
     ) -> list[ContentItem]:
+        self._log_runtime_diagnostics()
         results: list[ContentItem] = []
         cutoff = utc_days_ago(recent_days)
         for channel in channels:
             if not channel.get("enabled", True):
                 continue
-            channel_id = self._resolve_channel_id(channel["handle"])
-            videos = self._fetch_latest_videos(channel_id, max_results_per_channel)
-            for video in videos:
-                published_at = datetime.fromisoformat(video["published_at"].replace("Z", "+00:00"))
-                if published_at < cutoff:
-                    continue
-                if self._is_short(video["id"]):
-                    continue
-                detail = self._fetch_video_detail(video["id"])
-                duration_seconds = _iso_duration_to_seconds(detail["contentDetails"]["duration"])
-                if duration_seconds < min_duration_minutes * 60:
-                    continue
-                content_id = f"youtube_{video['id']}"
-                if content_id in seen_ids:
-                    continue
-                body = detail["snippet"].get("description", "").strip() or video["title"]
-                results.append(
-                    ContentItem(
-                        content_id=content_id,
-                        source_type="youtube",
-                        source_name=channel["name"],
-                        title=video["title"],
-                        url=f"https://www.youtube.com/watch?v={video['id']}",
-                        author=video["channel_title"],
-                        published_at=published_at,
-                        fetched_at=utc_now(),
-                        body=body,
-                        body_type="description",
-                        duration_seconds=duration_seconds,
-                        view_count=int(detail["statistics"].get("viewCount", 0)),
-                        like_count=int(detail["statistics"].get("likeCount", 0)),
-                        comment_count=int(detail["statistics"].get("commentCount", 0)),
-                        extra_metadata={
-                            "channel_reason": channel.get("reason", ""),
-                            "video_id": video["id"],
-                            "channel_id": channel_id,
-                            "transcript_status": "not_requested",
-                        },
+            try:
+                channel_id = str(channel.get("channel_id", "")).strip() or self._resolve_channel_id(channel["handle"])
+                videos = self._fetch_latest_videos(channel_id, max_results_per_channel)
+                for video in videos:
+                    published_at = datetime.fromisoformat(video["published_at"].replace("Z", "+00:00"))
+                    if published_at < cutoff:
+                        continue
+                    if self._is_short(video["id"]):
+                        continue
+                    detail = self._fetch_video_detail(video["id"])
+                    duration_seconds = _iso_duration_to_seconds(detail["contentDetails"]["duration"])
+                    if duration_seconds < min_duration_minutes * 60:
+                        continue
+                    content_id = f"youtube_{video['id']}"
+                    if content_id in seen_ids:
+                        continue
+                    body = detail["snippet"].get("description", "").strip() or video["title"]
+                    results.append(
+                        ContentItem(
+                            content_id=content_id,
+                            source_type="youtube",
+                            source_name=channel["name"],
+                            title=video["title"],
+                            url=f"https://www.youtube.com/watch?v={video['id']}",
+                            author=video["channel_title"],
+                            published_at=published_at,
+                            fetched_at=utc_now(),
+                            body=body,
+                            body_type="description",
+                            duration_seconds=duration_seconds,
+                            view_count=int(detail["statistics"].get("viewCount", 0)),
+                            like_count=int(detail["statistics"].get("likeCount", 0)),
+                            comment_count=int(detail["statistics"].get("commentCount", 0)),
+                            extra_metadata={
+                                "channel_reason": channel.get("reason", ""),
+                                "video_id": video["id"],
+                                "channel_id": channel_id,
+                                "transcript_status": "not_requested",
+                            },
+                        )
                     )
+            except Exception as exc:
+                LOGGER.warning(
+                    "Failed to fetch YouTube channel %s (%s): %s",
+                    channel.get("name", ""),
+                    channel.get("handle", ""),
+                    exc,
                 )
+                continue
         LOGGER.info("Fetched %s new YouTube metadata items", len(results))
         return results
 
@@ -85,51 +100,61 @@ class YouTubeFetcher:
         max_results_per_playlist: int = 20,
         min_duration_minutes: int = 25,
     ) -> list[ContentItem]:
+        self._log_runtime_diagnostics()
         results: list[ContentItem] = []
         cutoff = utc_days_ago(recent_days)
         for playlist in playlists:
             if not playlist.get("enabled", True):
                 continue
-            videos = self._fetch_playlist_videos(playlist["playlist_id"], max_results_per_playlist)
-            for video in videos:
-                published_at = datetime.fromisoformat(video["published_at"].replace("Z", "+00:00"))
-                if published_at < cutoff:
-                    continue
-                if self._is_short(video["id"]):
-                    continue
-                detail = self._fetch_video_detail(video["id"])
-                duration_seconds = _iso_duration_to_seconds(detail["contentDetails"]["duration"])
-                if duration_seconds < min_duration_minutes * 60:
-                    continue
-                content_id = f"youtube_{video['id']}"
-                if content_id in seen_ids:
-                    continue
-                body = detail["snippet"].get("description", "").strip() or video["title"]
-                results.append(
-                    ContentItem(
-                        content_id=content_id,
-                        source_type="youtube",
-                        source_name=playlist["name"],
-                        title=video["title"],
-                        url=f"https://www.youtube.com/watch?v={video['id']}",
-                        author=video["channel_title"],
-                        published_at=published_at,
-                        fetched_at=utc_now(),
-                        body=body,
-                        body_type="description",
-                        duration_seconds=duration_seconds,
-                        view_count=int(detail["statistics"].get("viewCount", 0)),
-                        like_count=int(detail["statistics"].get("likeCount", 0)),
-                        comment_count=int(detail["statistics"].get("commentCount", 0)),
-                        extra_metadata={
-                            "channel_reason": playlist.get("reason", ""),
-                            "video_id": video["id"],
-                            "playlist_id": playlist["playlist_id"],
-                            "playlist_url": playlist.get("url", ""),
-                            "transcript_status": "not_requested",
-                        },
+            try:
+                videos = self._fetch_playlist_videos(playlist["playlist_id"], max_results_per_playlist)
+                for video in videos:
+                    published_at = datetime.fromisoformat(video["published_at"].replace("Z", "+00:00"))
+                    if published_at < cutoff:
+                        continue
+                    if self._is_short(video["id"]):
+                        continue
+                    detail = self._fetch_video_detail(video["id"])
+                    duration_seconds = _iso_duration_to_seconds(detail["contentDetails"]["duration"])
+                    if duration_seconds < min_duration_minutes * 60:
+                        continue
+                    content_id = f"youtube_{video['id']}"
+                    if content_id in seen_ids:
+                        continue
+                    body = detail["snippet"].get("description", "").strip() or video["title"]
+                    results.append(
+                        ContentItem(
+                            content_id=content_id,
+                            source_type="youtube",
+                            source_name=playlist["name"],
+                            title=video["title"],
+                            url=f"https://www.youtube.com/watch?v={video['id']}",
+                            author=video["channel_title"],
+                            published_at=published_at,
+                            fetched_at=utc_now(),
+                            body=body,
+                            body_type="description",
+                            duration_seconds=duration_seconds,
+                            view_count=int(detail["statistics"].get("viewCount", 0)),
+                            like_count=int(detail["statistics"].get("likeCount", 0)),
+                            comment_count=int(detail["statistics"].get("commentCount", 0)),
+                            extra_metadata={
+                                "channel_reason": playlist.get("reason", ""),
+                                "video_id": video["id"],
+                                "playlist_id": playlist["playlist_id"],
+                                "playlist_url": playlist.get("url", ""),
+                                "transcript_status": "not_requested",
+                            },
+                        )
                     )
+            except Exception as exc:
+                LOGGER.warning(
+                    "Failed to fetch YouTube playlist %s (%s): %s",
+                    playlist.get("name", ""),
+                    playlist.get("playlist_id", ""),
+                    exc,
                 )
+                continue
         LOGGER.info("Fetched %s new YouTube playlist metadata items", len(results))
         return results
 
@@ -213,6 +238,39 @@ class YouTubeFetcher:
         )
         response.raise_for_status()
         return response.json()
+
+    def _log_runtime_diagnostics(self) -> None:
+        if self._runtime_diagnostics_logged:
+            return
+        self._runtime_diagnostics_logged = True
+        target_url = "https://www.googleapis.com/youtube/v3/search"
+        env_proxy_keys = [
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "NO_PROXY",
+            "http_proxy",
+            "https_proxy",
+            "no_proxy",
+        ]
+        env_proxies = {key: os.getenv(key, "") for key in env_proxy_keys if os.getenv(key)}
+        try:
+            effective_proxies = requests.utils.get_environ_proxies(target_url)
+        except Exception as exc:
+            effective_proxies = {"error": str(exc)}
+        try:
+            registry_proxies = getproxies()
+        except Exception as exc:
+            registry_proxies = {"error": str(exc)}
+
+        LOGGER.info(
+            "YouTube fetch runtime context: user=%s pid=%s python=%s env_proxies=%s effective_proxies=%s registry_proxies=%s",
+            getpass.getuser(),
+            os.getpid(),
+            sys.executable,
+            env_proxies,
+            effective_proxies,
+            registry_proxies,
+        )
 
     def _is_short(self, video_id: str) -> bool:
         url = f"https://www.youtube.com/shorts/{video_id}"

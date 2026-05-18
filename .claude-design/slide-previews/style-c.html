@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Style C - Notebook Tabs</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,700&family=DM+Sans:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --outer: #35312d;
+        --page: #f8f5ee;
+        --ink: #181512;
+        --muted: #72675c;
+        --tab1: #9bd3bb;
+        --tab2: #c8b7ea;
+        --tab3: #f5bdca;
+        --tab4: #aad8ea;
+        --tab5: #ffe6a7;
+        --title-size: clamp(2rem, 5.6vw, 4.6rem);
+        --body-size: clamp(0.82rem, 1.15vw, 1rem);
+        --small-size: clamp(0.68rem, 0.9vw, 0.82rem);
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body { height: 100%; overflow-x: hidden; }
+      body {
+        font-family: "DM Sans", sans-serif;
+        background: var(--outer);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+      }
+      .page {
+        width: min(94vw, 1300px);
+        height: min(92vh, 760px);
+        background: var(--page);
+        box-shadow: 0 30px 90px rgba(0,0,0,0.22);
+        border-radius: 1.4rem;
+        padding: 1.5rem;
+        position: relative;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+      .meta {
+        display: flex;
+        justify-content: space-between;
+        font-size: var(--small-size);
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .body {
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        gap: 1.2rem;
+        align-items: end;
+        flex: 1;
+      }
+      h1 {
+        font-family: "Bodoni Moda", serif;
+        color: var(--ink);
+        font-size: var(--title-size);
+        line-height: 0.92;
+        max-width: 8ch;
+        letter-spacing: -0.04em;
+      }
+      .left {
+        display: flex;
+        flex-direction: column;
+        gap: 0.9rem;
+      }
+      .left p {
+        color: var(--muted);
+        font-size: var(--body-size);
+        line-height: 1.65;
+        max-width: 30rem;
+      }
+      .right {
+        border: 1px solid rgba(24, 21, 18, 0.1);
+        border-radius: 1.2rem;
+        padding: 1rem 1rem 1.1rem;
+        background: rgba(255,255,255,0.55);
+      }
+      .right h3 {
+        font-family: "Bodoni Moda", serif;
+        font-size: clamp(1.2rem, 2vw, 1.8rem);
+        margin-bottom: 0.7rem;
+      }
+      .right ul {
+        padding-left: 1rem;
+        color: var(--ink);
+        display: flex;
+        flex-direction: column;
+        gap: 0.45rem;
+        font-size: var(--body-size);
+        line-height: 1.5;
+      }
+      .tabs {
+        position: absolute;
+        top: 8rem;
+        right: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.55rem;
+      }
+      .tab {
+        width: 3rem;
+        border-radius: 0.9rem 0 0 0.9rem;
+        padding: 0.6rem 0.35rem;
+        font-size: clamp(0.5rem, 1vh, 0.7rem);
+        text-align: center;
+        writing-mode: vertical-rl;
+        text-orientation: mixed;
+        color: #3c332b;
+      }
+    </style>
+  </head>
+  <body>
+    <section class="page">
+      <div class="meta">
+        <span>AI Radar / Notebook Tabs</span>
+        <span>Style C</span>
+      </div>
+      <div class="body">
+        <div class="left">
+          <h1>AI 硬件浪潮才刚开始</h1>
+          <p>这个方向更像结构化阅读 deck。视觉会更安静、更像刊物，适合把播客中的章节判断做成带顺序感的演示文稿。</p>
+        </div>
+        <aside class="right">
+          <h3>适合这篇内容的原因</h3>
+          <ul>
+            <li>方便承载章节型内容</li>
+            <li>适合较强的论证顺序</li>
+            <li>可以把“电子书感”保留下来</li>
+          </ul>
+        </aside>
+      </div>
+      <div class="tabs">
+        <div class="tab" style="background: var(--tab1);">VR</div>
+        <div class="tab" style="background: var(--tab2);">AR</div>
+        <div class="tab" style="background: var(--tab3);">ROBOT</div>
+        <div class="tab" style="background: var(--tab4);">SUPPLY</div>
+        <div class="tab" style="background: var(--tab5);">FACTORY</div>
+      </div>
+    </section>
+  </body>
+</html>
