@@ -33,7 +33,7 @@ class WeeklyDigestBuilder:
                     "template": "purple",
                     "title": {
                         "tag": "plain_text",
-                        "content": f"AI Radar 周报 · 第 {week_number} 周（{monday:%m-%d} ~ {sunday:%m-%d}）",
+                        "content": f"AI Radar 周报 · 第{week_number}周（{monday:%m-%d} ~ {sunday:%m-%d}）",
                     },
                 },
                 "elements": self._build_elements(theme_payload.get("themes", []), top_payloads),
@@ -49,7 +49,7 @@ class WeeklyDigestBuilder:
         themes = theme_payload.get("themes", [])
         week_number, monday, sunday = self._week_window(items)
 
-        lines = [f"# AI Radar 周报 · 第 {week_number} 周（{monday:%m-%d} ~ {sunday:%m-%d}）", ""]
+        lines = [f"# AI Radar 周报 · 第{week_number}周（{monday:%m-%d} ~ {sunday:%m-%d}）", ""]
         if themes:
             lines.append("## 本周重要主题")
             lines.append("")
@@ -180,8 +180,9 @@ class WeeklyDigestBuilder:
         source_type = str(highlight.get("type", "")).strip().lower()
         if not source_type:
             source_type = "youtube" if "youtube.com" in url or "youtu.be" in url else "article"
-        emoji = "🎙️" if source_type == "youtube" else "📰"
+        emoji = "🎞️" if source_type == "youtube" else "📰"
         display_name = self._get_display_name(source_name) if source_name else self._fallback_display_name("unknown")
+        title = self._strip_duplicate_source_prefix(title, display_name)
         if title and url:
             return f"> {emoji} `{display_name}` · [{title}]({url})"
         if title:
@@ -190,7 +191,7 @@ class WeeklyDigestBuilder:
 
     def _format_score_line(self, total: float, scores: dict[str, Any]) -> str:
         return (
-            f"**🏁 总分 {total:.1f}** · "
+            f"**🎯 总分 {total:.1f}** · "
             f"相关度 {int(scores.get('relevance', 0))} · "
             f"观点 {int(scores.get('contrarian', 0))} · "
             f"嘉宾 {int(scores.get('guest_rarity', 0))} · "
@@ -246,3 +247,20 @@ class WeeklyDigestBuilder:
         if not words:
             return source_name
         return " ".join(word.capitalize() for word in words)
+
+    def _strip_duplicate_source_prefix(self, title: str, display_name: str) -> str:
+        normalized_title = title.strip()
+        normalized_display_name = display_name.strip()
+        if not normalized_title or not normalized_display_name:
+            return normalized_title
+
+        prefixes = (
+            f"{normalized_display_name}: ",
+            f"{normalized_display_name}：",
+            f"{normalized_display_name} - ",
+            f"{normalized_display_name} — ",
+        )
+        for prefix in prefixes:
+            if normalized_title.startswith(prefix):
+                return normalized_title[len(prefix) :].strip()
+        return normalized_title

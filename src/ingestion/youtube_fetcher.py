@@ -13,6 +13,7 @@ from urllib.request import getproxies
 import requests
 
 from src.models.content_item import ContentItem
+from src.utils.http_retry import run_with_retries
 from src.utils.time_utils import utc_days_ago, utc_now
 
 LOGGER = logging.getLogger(__name__)
@@ -24,6 +25,8 @@ class YouTubeFetcher:
             raise RuntimeError("YOUTUBE_API_KEY is not configured")
         self.api_key = api_key
         self.timeout_seconds = timeout_seconds
+        self.retry_attempts = 3
+        self.retry_delays_seconds = (10, 30)
         self._runtime_diagnostics_logged = False
 
     def fetch(
@@ -237,12 +240,13 @@ class YouTubeFetcher:
         return items[0]
 
     def _youtube_get(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
-        response = requests.get(
-            f"https://www.googleapis.com/youtube/v3/{path}",
-            params={**params, "key": self.api_key},
-            timeout=self.timeout_seconds,
+        response = run_with_retries(
+            lambda: self._request_api(path, params),
+            description=f"YouTube API {path}",
+            max_attempts=self.retry_attempts,
+            retry_delays_seconds=self.retry_delays_seconds,
+            logger=LOGGER,
         )
-        response.raise_for_status()
         return response.json()
 
     def _log_runtime_diagnostics(self) -> None:
@@ -281,11 +285,31 @@ class YouTubeFetcher:
     def _is_short(self, video_id: str) -> bool:
         url = f"https://www.youtube.com/shorts/{video_id}"
         try:
-            response = requests.head(url, allow_redirects=True, timeout=self.timeout_seconds)
+            response = run_with_retries(
+                lambda: self._head_request(url),
+                description=f"YouTube shorts probe {video_id}",
+                max_attempts=self.retry_attempts,
+                retry_delays_seconds=self.retry_delays_seconds,
+                logger=LOGGER,
+            )
             parsed = urlparse(response.url)
             return parsed.path.startswith("/shorts/")
         except Exception:
             return False
+
+    def _request_api(self, path: str, params: dict[str, Any]) -> requests.Response:
+        response = requests.get(
+            f"https://www.googleapis.com/youtube/v3/{path}",
+            params={**params, "key": self.api_key},
+            timeout=self.timeout_seconds,
+        )
+        response.raise_for_status()
+        return response
+
+    def _head_request(self, url: str) -> requests.Response:
+        response = requests.head(url, allow_redirects=True, timeout=self.timeout_seconds)
+        response.raise_for_status()
+        return response
 
 
 def _iso_duration_to_seconds(duration: str) -> int:

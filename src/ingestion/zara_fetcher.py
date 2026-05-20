@@ -25,11 +25,19 @@ class ZaraFetchReport:
 
 
 class ZaraFetcher:
-    def __init__(self, feeds: list[dict[str, Any]], timeout_seconds: int) -> None:
+    def __init__(
+        self,
+        feeds: list[dict[str, Any]],
+        timeout_seconds: int,
+        retry_attempts: int = 4,
+        retry_delays_seconds: tuple[int, ...] = (60, 180, 600),
+        retry_window_seconds: int | None = None,
+    ) -> None:
         self.feeds = feeds
         self.timeout_seconds = timeout_seconds
-        self.retry_attempts = 4
-        self.retry_delays_seconds = (60, 180, 600)
+        self.retry_attempts = retry_attempts
+        self.retry_delays_seconds = retry_delays_seconds
+        self.retry_window_seconds = retry_window_seconds
         self.last_fetch_reports: list[ZaraFetchReport] = []
 
     def fetch(
@@ -62,6 +70,7 @@ class ZaraFetcher:
         attempts = 0
         last_error = ""
         feed_name = str(feed.get("name", "unknown"))
+        started_at = time.monotonic()
 
         for attempt in range(1, self.retry_attempts + 1):
             attempts = attempt
@@ -85,6 +94,15 @@ class ZaraFetcher:
             except Exception as exc:
                 last_error = str(exc)
                 retryable = self._is_retryable_exception(exc)
+                if self._retry_window_exhausted(started_at):
+                    LOGGER.warning("Failed to fetch Zara feed %s after retry window elapsed: %s", feed_name, exc)
+                    return [], ZaraFetchReport(
+                        feed_name=feed_name,
+                        status="timed_out",
+                        attempts=attempts,
+                        items_fetched=0,
+                        error=last_error,
+                    )
                 if attempt >= self.retry_attempts or not retryable:
                     LOGGER.warning("Failed to fetch Zara feed %s after %s attempt(s): %s", feed_name, attempt, exc)
                     return [], ZaraFetchReport(
@@ -95,6 +113,20 @@ class ZaraFetcher:
                         error=last_error,
                     )
                 delay = self.retry_delays_seconds[min(attempt - 1, len(self.retry_delays_seconds) - 1)]
+                if self._retry_window_exhausted(started_at, next_delay_seconds=delay):
+                    LOGGER.warning(
+                        "Failed to fetch Zara feed %s before attempt %s retry window would be exceeded: %s",
+                        feed_name,
+                        attempt,
+                        exc,
+                    )
+                    return [], ZaraFetchReport(
+                        feed_name=feed_name,
+                        status="timed_out",
+                        attempts=attempts,
+                        items_fetched=0,
+                        error=last_error,
+                    )
                 LOGGER.warning(
                     "Failed to fetch Zara feed %s on attempt %s/%s: %s; retrying in %ss",
                     feed_name,
@@ -112,6 +144,12 @@ class ZaraFetcher:
             items_fetched=0,
             error=last_error,
         )
+
+    def _retry_window_exhausted(self, started_at: float, next_delay_seconds: int = 0) -> bool:
+        if self.retry_window_seconds is None:
+            return False
+        elapsed_seconds = time.monotonic() - started_at
+        return elapsed_seconds + next_delay_seconds >= self.retry_window_seconds
 
     def _is_retryable_exception(self, exc: Exception) -> bool:
         if isinstance(exc, (requests.Timeout, requests.ConnectionError)):

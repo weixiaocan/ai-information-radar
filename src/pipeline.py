@@ -250,7 +250,7 @@ class Pipeline:
         if (
             not themes_data.get("themes")
             and not themes_data.get("spotlight_posts")
-            and str(zara_x_status.get("status", "")).strip() == "failed"
+            and str(zara_x_status.get("status", "")).strip() in {"failed", "timed_out"}
         ):
             themes_data["degraded_reason"] = "builder_source_fetch_failed"
             themes_data["degraded_source"] = "zara_x"
@@ -278,12 +278,21 @@ class Pipeline:
 
         base_window = self.state_manager.load_latest_window("ingest")
         if not base_window:
+            self.state_manager.write_heartbeat("x_refresh_site_error", {"reason": "missing_ingest_window"})
             return {"updated": False, "reason": "missing_ingest_window"}
 
         refresh_start = self._parse_window_timestamp(base_window.get("end_at"))
         if refresh_start is None:
+            self.state_manager.write_heartbeat("x_refresh_site_error", {"reason": "missing_ingest_window_end"})
             return {"updated": False, "reason": "missing_ingest_window_end"}
         refresh_end = datetime.now(timezone.utc)
+        self.state_manager.write_heartbeat(
+            "x_refresh_site_start",
+            {
+                "window_start": refresh_start.isoformat(),
+                "window_end": refresh_end.isoformat(),
+            },
+        )
 
         seen_ids = self.state_manager.load_seen_ids()
         zara_feeds = [
@@ -298,12 +307,52 @@ class Pipeline:
             recent_days=1,
             start_at=refresh_start,
             end_at=refresh_end,
+            retry_attempts=self.settings.zara_x_refresh_retry_attempts,
+            retry_delays_seconds=self.settings.zara_x_refresh_retry_delays_seconds,
+            retry_window_seconds=self.settings.zara_x_refresh_retry_window_seconds,
         )
         self.state_manager.save_latest_source_statuses(
             {
                 "zara_x": self._summarize_zara_source_status("zara_x"),
             }
         )
+        zara_status = self._summarize_zara_source_status("zara_x")
+        day = str(base_window.get("label_date", "")).strip() or "latest"
+        if str(zara_status.get("status", "")).strip() in {"failed", "timed_out"}:
+            self.state_manager.write_heartbeat(
+                "x_refresh_site_error",
+                {
+                    "reason": "zara_fetch_failed",
+                    "source_status": zara_status,
+                    "window_start": refresh_start.isoformat(),
+                    "window_end": refresh_end.isoformat(),
+                    "report_day": day,
+                },
+            )
+            return {
+                "updated": False,
+                "reason": "zara_fetch_failed",
+                "report_day": day,
+                "source_status": zara_status,
+            }
+        if not zara_items:
+            self.state_manager.write_heartbeat(
+                "x_refresh_site",
+                {
+                    "new_x_items": 0,
+                    "status": str(zara_status.get("status", "empty")).strip() or "empty",
+                    "window_start": refresh_start.isoformat(),
+                    "window_end": refresh_end.isoformat(),
+                    "report_day": day,
+                    "site_updated": False,
+                },
+            )
+            return {
+                "updated": False,
+                "new_x_items": 0,
+                "report_day": day,
+                "source_status": zara_status,
+            }
         self.transcript_store.save_many(zara_items)
         seen_ids.update(item.content_id for item in zara_items)
         self.state_manager.save_seen_ids(seen_ids)
@@ -313,7 +362,6 @@ class Pipeline:
             self._build_window_payload(refresh_start, refresh_end),
         )
 
-        day = str(base_window.get("label_date", "")).strip() or "latest"
         target_date = date.fromisoformat(day) if day != "latest" else None
         report_items = self._load_items_for_site_x_refresh(target_date, base_window, zara_items)
         candidates, themes_data, selections_data, stats = self._build_daily_sections(report_items)
@@ -326,15 +374,18 @@ class Pipeline:
             "x_refresh_site",
             {
                 "new_x_items": len(zara_items),
+                "status": str(zara_status.get("status", "success")).strip() or "success",
                 "window_start": refresh_start.isoformat(),
                 "window_end": refresh_end.isoformat(),
                 "report_day": day,
+                "site_updated": True,
             },
         )
         return {
             "updated": True,
             "new_x_items": len(zara_items),
             "report_day": day,
+            "source_status": zara_status,
         }
 
     def weekly(self, items: list[ContentItem] | None = None, deliver: bool = True) -> dict:
@@ -464,13 +515,26 @@ class Pipeline:
         recent_days: int,
         start_at: datetime | None = None,
         end_at: datetime | None = None,
+        retry_attempts: int | None = None,
+        retry_delays_seconds: tuple[int, ...] | None = None,
+        retry_window_seconds: int | None = None,
     ) -> list[ContentItem]:
         try:
-            fetcher = fetcher_cls(zara_feeds, self.settings.request_timeout_seconds)
+            fetcher = fetcher_cls(
+                zara_feeds,
+                self.settings.request_timeout_seconds,
+                retry_attempts=retry_attempts or self.settings.zara_retry_attempts,
+                retry_delays_seconds=retry_delays_seconds or self.settings.zara_retry_delays_seconds,
+                retry_window_seconds=(
+                    self.settings.zara_retry_window_seconds
+                    if retry_window_seconds is None
+                    else retry_window_seconds
+                ),
+            )
             items = fetcher.fetch(seen_ids, recent_days, start_at=start_at, end_at=end_at)
             self._last_zara_fetch_reports = list(getattr(fetcher, "last_fetch_reports", []))
             for report in getattr(fetcher, "last_fetch_reports", []):
-                if getattr(report, "status", "") != "failed":
+                if getattr(report, "status", "") not in {"failed", "timed_out"}:
                     continue
                 self.state_manager.write_heartbeat(
                     "ingest_warning",
@@ -673,7 +737,7 @@ class Pipeline:
         if (
             not themes_data.get("themes")
             and not themes_data.get("spotlight_posts")
-            and str(zara_x_status.get("status", "")).strip() == "failed"
+            and str(zara_x_status.get("status", "")).strip() in {"failed", "timed_out"}
         ):
             themes_data["degraded_reason"] = "builder_source_fetch_failed"
             themes_data["degraded_source"] = "zara_x"

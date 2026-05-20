@@ -4,6 +4,7 @@ const articleSchema = z.object({
   title: z.string(),
   date: z.string(),
   publishedDate: z.string(),
+  updatedAt: z.string().optional(),
   type: z.enum(["daily", "weekly"]),
   routeSlug: z.string(),
   sourcePath: z.string(),

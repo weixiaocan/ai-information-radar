@@ -22,6 +22,12 @@ class Settings:
     site_git_branch: str = "main"
     site_publish_timeout_seconds: int = 60
     request_timeout_seconds: int = 30
+    zara_retry_attempts: int = 4
+    zara_retry_delays_seconds: tuple[int, ...] = (60, 180, 600)
+    zara_retry_window_seconds: int = 960
+    zara_x_refresh_retry_attempts: int = 4
+    zara_x_refresh_retry_delays_seconds: tuple[int, ...] = (60, 180, 600)
+    zara_x_refresh_retry_window_seconds: int = 960
     bootstrap_days: int = 7
     incremental_days: int = 1
     tier2_candidate_count: int = 5
@@ -42,6 +48,14 @@ def load_settings(project_root: Path | None = None) -> Settings:
         site_git_branch=os.getenv("SITE_GIT_BRANCH", "main"),
         site_publish_timeout_seconds=int(os.getenv("SITE_PUBLISH_TIMEOUT_SECONDS", "60")),
         request_timeout_seconds=int(os.getenv("REQUEST_TIMEOUT_SECONDS", "30")),
+        zara_retry_attempts=int(os.getenv("ZARA_RETRY_ATTEMPTS", "4")),
+        zara_retry_delays_seconds=_parse_int_tuple(os.getenv("ZARA_RETRY_DELAYS_SECONDS", "60,180,600")),
+        zara_retry_window_seconds=int(os.getenv("ZARA_RETRY_WINDOW_SECONDS", "960")),
+        zara_x_refresh_retry_attempts=int(os.getenv("ZARA_X_REFRESH_RETRY_ATTEMPTS", "4")),
+        zara_x_refresh_retry_delays_seconds=_parse_int_tuple(
+            os.getenv("ZARA_X_REFRESH_RETRY_DELAYS_SECONDS", "60,180,600")
+        ),
+        zara_x_refresh_retry_window_seconds=int(os.getenv("ZARA_X_REFRESH_RETRY_WINDOW_SECONDS", "960")),
         bootstrap_days=int(os.getenv("BOOTSTRAP_DAYS", "7")),
         incremental_days=int(os.getenv("INCREMENTAL_DAYS", "1")),
         tier2_candidate_count=int(os.getenv("TIER2_CANDIDATE_COUNT", "5")),
@@ -61,3 +75,8 @@ def _resolve_optional_path(project_root: Path, raw_path: str) -> Path | None:
     if not path.is_absolute():
         path = (project_root / path).resolve()
     return path
+
+
+def _parse_int_tuple(raw_value: str) -> tuple[int, ...]:
+    values = [segment.strip() for segment in raw_value.split(",")]
+    return tuple(int(value) for value in values if value)

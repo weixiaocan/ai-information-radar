@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from html import unescape
 from pathlib import Path
 import re
@@ -55,12 +55,14 @@ def _sync_report(report_path: Path, output_root: Path, report_type: str) -> Path
     slug = _build_slug(report_path, report_type)
     article_date = _build_article_date(report_path, report_type)
     published_date = _build_published_date(report_path, report_type)
+    updated_at = _build_updated_at(report_path)
     frontmatter = "\n".join(
         [
             "---",
             f'title: "{_escape_yaml(title)}"',
             f'date: "{article_date}"',
             f'publishedDate: "{published_date}"',
+            f'updatedAt: "{updated_at}"',
             f'type: "{report_type}"',
             f'routeSlug: "{slug}"',
             f'sourcePath: "{_escape_yaml(report_path.as_posix())}"',
@@ -104,6 +106,10 @@ def _build_published_date(report_path: Path, report_type: str) -> str:
     year_str, week_str = stem.split("-W", maxsplit=1)
     sunday = date.fromisocalendar(int(year_str), int(week_str), 7)
     return (sunday + timedelta(days=1)).isoformat()
+
+
+def _build_updated_at(report_path: Path) -> str:
+    return datetime.fromtimestamp(report_path.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
 
 
 def _escape_yaml(value: str) -> str:

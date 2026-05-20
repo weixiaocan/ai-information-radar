@@ -8,6 +8,7 @@ import requests
 from goose3 import Goose
 
 from src.models.content_item import ContentItem
+from src.utils.http_retry import run_with_retries
 from src.utils.time_utils import utc_days_ago, utc_now
 
 LOGGER = logging.getLogger(__name__)
@@ -17,6 +18,8 @@ class RSSFetcher:
     def __init__(self, timeout_seconds: int) -> None:
         self.timeout_seconds = timeout_seconds
         self.goose = Goose()
+        self.retry_attempts = 3
+        self.retry_delays_seconds = (10, 30)
 
     def fetch(
         self,
@@ -32,7 +35,11 @@ class RSSFetcher:
         for source in sources:
             if not source.get("enabled", True):
                 continue
-            parsed = feedparser.parse(source["url"])
+            try:
+                parsed = self._fetch_feed(source)
+            except Exception as exc:
+                LOGGER.warning("Failed to fetch RSS source %s: %s", source.get("name"), exc)
+                continue
             for entry in parsed.entries:
                 native_id = entry.get("id") or entry.get("link") or entry.get("title")
                 content_id = f"rss_{native_id}"
@@ -44,6 +51,16 @@ class RSSFetcher:
                 results.append(item)
         LOGGER.info("Fetched %s new RSS items", len(results))
         return results
+
+    def _fetch_feed(self, source: dict) -> feedparser.FeedParserDict:
+        response = run_with_retries(
+            lambda: self._request(source["url"]),
+            description=f"RSS feed fetch {source.get('name', source['url'])}",
+            max_attempts=self.retry_attempts,
+            retry_delays_seconds=self.retry_delays_seconds,
+            logger=LOGGER,
+        )
+        return feedparser.parse(response.text)
 
     def _to_content_item(self, source: dict, entry: dict, content_id: str) -> ContentItem:
         url = entry.get("link", "")
@@ -67,13 +84,23 @@ class RSSFetcher:
 
     def _extract_article(self, url: str) -> str:
         try:
-            response = requests.get(url, timeout=self.timeout_seconds)
-            response.raise_for_status()
+            response = run_with_retries(
+                lambda: self._request(url),
+                description=f"RSS article fetch {url}",
+                max_attempts=self.retry_attempts,
+                retry_delays_seconds=self.retry_delays_seconds,
+                logger=LOGGER,
+            )
             article = self.goose.extract(raw_html=response.text)
             return article.cleaned_text or ""
         except Exception as exc:
             LOGGER.warning("Failed to extract RSS article body from %s: %s", url, exc)
             return ""
+
+    def _request(self, url: str) -> requests.Response:
+        response = requests.get(url, timeout=self.timeout_seconds)
+        response.raise_for_status()
+        return response
 
 
 def _parse_struct_time(entry: dict) -> datetime:

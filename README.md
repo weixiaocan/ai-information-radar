@@ -88,13 +88,13 @@ D:\anaconda\envs\ai-radar\python.exe main.py --task weekly --deliver
   <img src="docs/images/daily_digest.png" alt="AI Radar daily digest screenshot" width="820" />
 </p>
 
-## Public Site Publishing
+## 公开站点发布
 
-This repo can sync generated digests into a separate public site repository.
+这个仓库可以把生成好的日报 / 周报同步到一个独立的公开站点仓库。
 
-1. Create and clone a sibling repo such as `..\ai-radar-site`
-2. Copy the Astro starter from [`site_starter/`](./site_starter)
-3. Set the following values in `.env`
+1. 创建并克隆一个同级仓库，例如 `..\ai-radar-site`
+2. 将 [`site_starter/`](./site_starter) 里的 Astro 起始模板复制过去
+3. 在 `.env` 中设置以下配置
 
 ```env
 SITE_PUBLISH_ENABLED=true
@@ -103,13 +103,13 @@ SITE_GIT_BRANCH=main
 SITE_PUBLISH_TIMEOUT_SECONDS=60
 ```
 
-Manual sync and publish:
+手动同步并发布：
 
 ```powershell
 D:\anaconda\envs\ai-radar\python.exe main.py --task publish-site
 ```
 
-Bootstrap the separate site repo from the included starter:
+用仓库内置的 starter 初始化独立站点仓库：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap_site_repo.ps1 -SiteRepoPath ..\ai-radar-site
@@ -117,7 +117,7 @@ cd ..\ai-radar-site
 npm install
 ```
 
-After that, `daily` and `weekly` will auto-publish to the site repo when `SITE_PUBLISH_ENABLED=true`.
+完成后，只要 `SITE_PUBLISH_ENABLED=true`，`daily` 和 `weekly` 任务就会自动把内容发布到站点仓库。
 
 ## 目录结构
 

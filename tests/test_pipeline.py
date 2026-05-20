@@ -739,6 +739,9 @@ class PipelineHelpersTest(unittest.TestCase):
         pipeline = Pipeline.__new__(Pipeline)
         pipeline.settings = Mock()
         pipeline.settings.request_timeout_seconds = 30
+        pipeline.settings.zara_retry_attempts = 4
+        pipeline.settings.zara_retry_delays_seconds = (60, 180, 600)
+        pipeline.settings.zara_retry_window_seconds = 960
         pipeline.state_manager = Mock()
 
         fetcher = Mock()
@@ -771,6 +774,39 @@ class PipelineHelpersTest(unittest.TestCase):
                 "attempts": 3,
                 "status": "failed",
             },
+        )
+
+    def test_safe_fetch_zara_passes_refresh_overrides_to_fetcher(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline.settings = Mock()
+        pipeline.settings.request_timeout_seconds = 30
+        pipeline.settings.zara_retry_attempts = 4
+        pipeline.settings.zara_retry_delays_seconds = (60, 180, 600)
+        pipeline.settings.zara_retry_window_seconds = 960
+        pipeline.state_manager = Mock()
+
+        fetcher = Mock()
+        fetcher.fetch.return_value = []
+        fetcher.last_fetch_reports = []
+        fetcher_cls = Mock(return_value=fetcher)
+
+        Pipeline._safe_fetch_zara(
+            pipeline,
+            fetcher_cls,
+            [{"name": "zara_x", "url": "https://example.com/feed-x.json"}],
+            set(),
+            1,
+            retry_attempts=5,
+            retry_delays_seconds=(90, 180, 300),
+            retry_window_seconds=1200,
+        )
+
+        fetcher_cls.assert_called_once_with(
+            [{"name": "zara_x", "url": "https://example.com/feed-x.json"}],
+            30,
+            retry_attempts=5,
+            retry_delays_seconds=(90, 180, 300),
+            retry_window_seconds=1200,
         )
 
     def test_daily_curate_marks_builder_fetch_failure_on_empty_hot_section(self) -> None:
@@ -844,6 +880,9 @@ class PipelineHelpersTest(unittest.TestCase):
         pipeline.settings = Mock()
         pipeline.settings.project_root = Path(".")
         pipeline.settings.request_timeout_seconds = 30
+        pipeline.settings.zara_x_refresh_retry_attempts = 4
+        pipeline.settings.zara_x_refresh_retry_delays_seconds = (60, 180, 600)
+        pipeline.settings.zara_x_refresh_retry_window_seconds = 960
         pipeline.state_manager = Mock()
         pipeline.state_manager.load_latest_window.side_effect = [
             {
@@ -890,6 +929,82 @@ class PipelineHelpersTest(unittest.TestCase):
         built_items = pipeline.daily_candidate_builder.build.call_args.args[0]
         self.assertEqual({item.content_id for item in built_items}, {"rss_1", "zara_x_1"})
         pipeline._publish_site_report.assert_called_once()
+        pipeline.state_manager.write_heartbeat.assert_any_call(
+            "x_refresh_site_start",
+            unittest.mock.ANY,
+        )
+        pipeline.state_manager.write_heartbeat.assert_any_call(
+            "x_refresh_site",
+            unittest.mock.ANY,
+        )
+
+    def test_x_refresh_site_returns_without_publishing_when_zara_fetch_failed(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline.settings = Mock()
+        pipeline.settings.project_root = Path(".")
+        pipeline.settings.request_timeout_seconds = 30
+        pipeline.settings.zara_x_refresh_retry_attempts = 4
+        pipeline.settings.zara_x_refresh_retry_delays_seconds = (60, 180, 600)
+        pipeline.settings.zara_x_refresh_retry_window_seconds = 960
+        pipeline.state_manager = Mock()
+        pipeline.state_manager.load_latest_window.return_value = {
+            "start_at": "2026-05-19T23:00:00+00:00",
+            "end_at": "2026-05-20T23:00:00+00:00",
+            "label_date": "2026-05-20",
+        }
+        pipeline.state_manager.load_seen_ids.return_value = set()
+        pipeline.state_manager.save_latest_source_statuses = Mock()
+        pipeline.transcript_store = Mock()
+        pipeline._safe_fetch_zara = Mock(return_value=[])
+        pipeline._summarize_zara_source_status = Mock(
+            return_value={"status": "timed_out", "attempts": 4, "items_fetched": 0, "error": "timeout"}
+        )
+        pipeline._publish_site_report = Mock()
+
+        payload = Pipeline.x_refresh_site(pipeline)
+
+        self.assertFalse(payload["updated"])
+        self.assertEqual(payload["reason"], "zara_fetch_failed")
+        pipeline.transcript_store.save_many.assert_not_called()
+        pipeline._publish_site_report.assert_not_called()
+        pipeline.state_manager.write_heartbeat.assert_any_call(
+            "x_refresh_site_error",
+            unittest.mock.ANY,
+        )
+
+    def test_x_refresh_site_records_empty_run_without_publishing(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline.settings = Mock()
+        pipeline.settings.project_root = Path(".")
+        pipeline.settings.request_timeout_seconds = 30
+        pipeline.settings.zara_x_refresh_retry_attempts = 4
+        pipeline.settings.zara_x_refresh_retry_delays_seconds = (60, 180, 600)
+        pipeline.settings.zara_x_refresh_retry_window_seconds = 960
+        pipeline.state_manager = Mock()
+        pipeline.state_manager.load_latest_window.return_value = {
+            "start_at": "2026-05-19T23:00:00+00:00",
+            "end_at": "2026-05-20T23:00:00+00:00",
+            "label_date": "2026-05-20",
+        }
+        pipeline.state_manager.load_seen_ids.return_value = set()
+        pipeline.state_manager.save_latest_source_statuses = Mock()
+        pipeline.transcript_store = Mock()
+        pipeline._safe_fetch_zara = Mock(return_value=[])
+        pipeline._summarize_zara_source_status = Mock(
+            return_value={"status": "empty", "attempts": 1, "items_fetched": 0, "error": ""}
+        )
+        pipeline._publish_site_report = Mock()
+
+        payload = Pipeline.x_refresh_site(pipeline)
+
+        self.assertFalse(payload["updated"])
+        self.assertEqual(payload["new_x_items"], 0)
+        pipeline.transcript_store.save_many.assert_not_called()
+        pipeline._publish_site_report.assert_not_called()
+        pipeline.state_manager.write_heartbeat.assert_any_call(
+            "x_refresh_site",
+            unittest.mock.ANY,
+        )
 
 
 if __name__ == "__main__":

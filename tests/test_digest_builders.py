@@ -451,6 +451,33 @@ class WeeklyDigestBuilderTest(unittest.TestCase):
 
         self.assertIn("`Anthropic Engineering`", markdown)
 
+    def test_weekly_digest_strips_duplicate_builder_prefix_from_x_titles(self) -> None:
+        client = Mock()
+        client.weekly_themes.return_value = {
+            "themes": [
+                {
+                    "title": "Builder signals",
+                    "summary": "Theme summary",
+                    "highlights": [
+                        {
+                            "title": "Zara Zhang: AI psychosis: cycling between two mental states every single day",
+                            "url": "https://x.com/zarazhangrui/status/1",
+                            "source_name": "Zara Zhang",
+                            "type": "article",
+                        }
+                    ],
+                }
+            ]
+        }
+        client.weekly_pitch.return_value = "pitch"
+        builder = WeeklyDigestBuilder(client, "prompts/weekly_pitch.md", "prompts/weekly_themes.md")
+
+        markdown = builder.render_markdown([])
+
+        self.assertIn("`Zara Zhang`", markdown)
+        self.assertIn("[AI psychosis: cycling between two mental states every single day](https://x.com/zarazhangrui/status/1)", markdown)
+        self.assertNotIn("[Zara Zhang: AI psychosis: cycling between two mental states every single day]", markdown)
+
     def test_weekly_digest_top_section_uses_playlist_display_name(self) -> None:
         client = Mock()
         client.weekly_themes.return_value = {"themes": []}

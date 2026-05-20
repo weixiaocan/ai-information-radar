@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime, timezone
+from json import JSONDecodeError
 from unittest.mock import patch
 
 from src.models.content_item import ContentItem
@@ -7,6 +8,30 @@ from src.utils.llm_client import DeepSeekClient
 
 
 class LLMClientValidationTest(unittest.TestCase):
+    def test_chat_completion_json_retries_once_on_invalid_json(self) -> None:
+        client = DeepSeekClient(api_key="key", base_url="https://example.com", timeout_seconds=30)
+
+        with patch.object(
+            client,
+            "_chat_completion",
+            side_effect=['{"signals": [', '{"signals": []}'],
+        ) as chat_mock:
+            payload = client._chat_completion_json("prompt", model="deepseek-chat", max_tokens=2200)
+
+        self.assertEqual(payload, {"signals": []})
+        self.assertEqual(chat_mock.call_count, 2)
+
+    def test_chat_completion_json_raises_after_second_invalid_json(self) -> None:
+        client = DeepSeekClient(api_key="key", base_url="https://example.com", timeout_seconds=30)
+
+        with patch.object(
+            client,
+            "_chat_completion",
+            side_effect=['{"signals": [', '{"signals": ['],
+        ):
+            with self.assertRaises(JSONDecodeError):
+                client._chat_completion_json("prompt", model="deepseek-chat", max_tokens=2200)
+
     def test_daily_selections_includes_candidate_index_in_prompt(self) -> None:
         client = DeepSeekClient(api_key="key", base_url="https://example.com", timeout_seconds=30)
         item = ContentItem(

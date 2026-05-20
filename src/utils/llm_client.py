@@ -77,7 +77,7 @@ class DeepSeekClient:
             channel_reason=item.extra_metadata.get("channel_reason", ""),
             body=item.body[:8000],
         )
-        return self._decode_json(self._chat_completion(prompt, model="deepseek-chat"))
+        return self._chat_completion_json(prompt, model="deepseek-chat")
 
     def score(self, prompt_path: str, item: ContentItem, x_mentions_count: int) -> dict[str, Any]:
         prompt_template = load_prompt(Path(prompt_path))
@@ -95,7 +95,7 @@ class DeepSeekClient:
             content_label=content_label,
             content=item.body[:15000],
         )
-        return self._decode_json(self._chat_completion(prompt, model="deepseek-chat"))
+        return self._chat_completion_json(prompt, model="deepseek-chat")
 
     def weekly_pitch(self, prompt_path: str, item: ContentItem, score_payload: dict[str, Any]) -> str:
         prompt_template = load_prompt(Path(prompt_path))
@@ -136,8 +136,7 @@ class DeepSeekClient:
                 )
             )
         prompt = prompt_template.format(items_blob="\n".join(digest_lines))
-        result = self._chat_completion(prompt, model="deepseek-chat", max_tokens=2600)
-        payload = self._decode_json(result)
+        payload = self._chat_completion_json(prompt, model="deepseek-chat", max_tokens=2600)
         issues = self._collect_weekly_theme_issues(payload)
         if issues:
             retry_prompt = (
@@ -146,8 +145,7 @@ class DeepSeekClient:
                 + "\n- ".join(issues)
                 + "\n请保证 themes 数量、summary 中文质量、highlight 字段完整性都符合要求。"
             )
-            retry_result = self._chat_completion(retry_prompt, model="deepseek-chat", max_tokens=2800)
-            payload = self._decode_json(retry_result)
+            payload = self._chat_completion_json(retry_prompt, model="deepseek-chat", max_tokens=2800)
         return payload
 
     def daily_theme_signals(self, prompt_path: str, items: list[ContentItem]) -> dict[str, Any]:
@@ -168,7 +166,7 @@ class DeepSeekClient:
             n_posts=len(builder_posts),
             builder_posts=json.dumps(builder_posts, ensure_ascii=False, indent=2),
         )
-        return self._decode_json(self._chat_completion(prompt, model="deepseek-chat", max_tokens=2200))
+        return self._chat_completion_json(prompt, model="deepseek-chat", max_tokens=2200)
 
     def daily_themes(
         self,
@@ -200,7 +198,7 @@ class DeepSeekClient:
                 + "\n- ".join(feedback)
                 + "\n请不要只修一部分；重写完整输出，并确保 summary 和 excerpt 都是自然中文。"
             )
-        return self._decode_json(self._chat_completion(prompt, model="deepseek-chat", max_tokens=2000))
+        return self._chat_completion_json(prompt, model="deepseek-chat", max_tokens=2000)
 
     def daily_selections(
         self,
@@ -226,7 +224,7 @@ class DeepSeekClient:
             exclude_content_ids=json.dumps(sorted(exclude_ids), ensure_ascii=False, indent=2),
             candidates_json=json.dumps(candidates, ensure_ascii=False, indent=2),
         )
-        return self._decode_json(self._chat_completion(prompt, model="deepseek-chat", max_tokens=1600))
+        return self._chat_completion_json(prompt, model="deepseek-chat", max_tokens=1600)
 
     def ebook_report(self, prompt_path: str, item: ContentItem, rank: int) -> str:
         prompt_template = load_prompt(Path(prompt_path))
@@ -270,6 +268,43 @@ class DeepSeekClient:
             if expect_json:
                 raise
             return raw_text
+
+    def _chat_completion_json(
+        self,
+        prompt: str,
+        model: str,
+        temperature: float = 0.2,
+        max_tokens: int = 1200,
+        timeout_seconds: int | None = None,
+    ) -> dict[str, Any]:
+        attempts = 2
+        last_error: json.JSONDecodeError | None = None
+        for attempt in range(1, attempts + 1):
+            raw_text = self._chat_completion(
+                prompt,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout_seconds=timeout_seconds,
+            )
+            try:
+                payload = self._decode_json(raw_text)
+            except json.JSONDecodeError as exc:
+                last_error = exc
+                if attempt >= attempts:
+                    raise
+                LOGGER.warning(
+                    "Model returned invalid JSON on attempt %s/%s; retrying once",
+                    attempt,
+                    attempts,
+                )
+                continue
+            if isinstance(payload, dict):
+                return payload
+            return {"value": payload}
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("Model JSON request failed unexpectedly")
 
     def _coerce_pitch_text(self, raw_text: str) -> str:
         data = self._decode_json(raw_text, expect_json=False)

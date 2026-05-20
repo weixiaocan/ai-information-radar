@@ -42,6 +42,8 @@ class SiteSyncTest(unittest.TestCase):
             self.assertFalse(stale_path.exists())
             self.assertIn('routeSlug: "2026-05-18"', daily_output.read_text(encoding="utf-8"))
             self.assertIn('routeSlug: "2026-w20"', weekly_output.read_text(encoding="utf-8"))
+            self.assertIn('updatedAt: "', daily_output.read_text(encoding="utf-8"))
+            self.assertIn('updatedAt: "', weekly_output.read_text(encoding="utf-8"))
 
 
 class SitePublisherTest(unittest.TestCase):

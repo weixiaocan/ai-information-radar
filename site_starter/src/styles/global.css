@@ -230,6 +230,12 @@ main {
   margin-bottom: 18px;
 }
 
+.article-update-meta {
+  color: rgb(61 84 70 / 72%);
+  font-size: 0.95rem;
+  margin: -2px 0 22px;
+}
+
 .article-back-bottom {
   margin-top: 36px;
   margin-bottom: 0;
