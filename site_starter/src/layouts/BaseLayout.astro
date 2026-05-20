@@ -1,0 +1,46 @@
+---
+import "../styles/global.css";
+import { siteConfig } from "../site-config";
+
+interface Props {
+  title: string;
+  description?: string;
+}
+
+const { title, description = siteConfig.description } = Astro.props;
+const canonicalUrl =
+  siteConfig.siteUrl && Astro.url.pathname
+    ? new URL(Astro.url.pathname, siteConfig.siteUrl).toString()
+    : "";
+---
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    {canonicalUrl && <link rel="canonical" href={canonicalUrl} />}
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,500&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <main>
+      <div class="shell">
+        <header class="site-header">
+          <a class="site-brand" href="/">AI Radar</a>
+          <nav class="site-nav" aria-label="Primary">
+            <a href="/">Archive</a>
+            <a href="/about/">About</a>
+          </nav>
+        </header>
+        <slot />
+      </div>
+    </main>
+  </body>
+</html>

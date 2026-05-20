@@ -96,14 +96,17 @@ class PipelineHelpersTest(unittest.TestCase):
         pipeline.transcript_store.load_available_dates.return_value = [date(2026, 5, 3)]
         pipeline.transcript_store.load_by_date.return_value = [target_item]
         pipeline.state_manager = Mock()
+        pipeline.state_manager.load_latest_window.return_value = {}
         pipeline.state_manager.load_daily_candidates.return_value = {"builder_hot_candidates": [], "editorial_candidates": []}
         pipeline.state_manager.load_daily_themes.return_value = {"themes": [], "discussion_dispersion": "dispersed"}
         pipeline.state_manager.load_daily_selections.return_value = {"selections": []}
         pipeline.state_manager.write_heartbeat = Mock()
         pipeline.daily_builder = Mock()
+        pipeline.daily_builder.collect_invariant_warnings.return_value = []
         pipeline.daily_builder.build.return_value = {"msg_type": "interactive"}
         pipeline._write_daily_report = Mock()
         pipeline.feishu = Mock()
+        pipeline.site_publisher = None
 
         with unittest.mock.patch("src.pipeline.date") as mock_date:
             mock_date.today.return_value = date(2026, 5, 4)
@@ -134,6 +137,7 @@ class PipelineHelpersTest(unittest.TestCase):
         pipeline.transcript_store.load_available_dates.return_value = [date(2026, 5, 3)]
         pipeline.transcript_store.load_by_date.return_value = [target_item]
         pipeline.state_manager = Mock()
+        pipeline.state_manager.load_latest_window.return_value = {}
         pipeline.state_manager.load_daily_candidates.return_value = {"builder_hot_candidates": [], "editorial_candidates": []}
         pipeline.state_manager.load_daily_themes.return_value = {"themes": [], "discussion_dispersion": "dispersed"}
         pipeline.state_manager.load_daily_selections.return_value = {"selections": []}
@@ -153,6 +157,7 @@ class PipelineHelpersTest(unittest.TestCase):
         pipeline.daily_builder.build.return_value = {"msg_type": "interactive"}
         pipeline._write_daily_report = Mock()
         pipeline.feishu = Mock()
+        pipeline.site_publisher = None
 
         with unittest.mock.patch("src.pipeline.date") as mock_date:
             mock_date.today.return_value = date(2026, 5, 4)
@@ -784,7 +789,7 @@ class PipelineHelpersTest(unittest.TestCase):
         )
         pipeline._load_stage_items = Mock(return_value=[target_item])
         pipeline._resolve_daily_target_date = Mock(return_value=date(2026, 5, 3))
-        pipeline._load_items_for_target_date = Mock(return_value=[target_item])
+        pipeline._load_items_for_daily_report = Mock(return_value=[target_item])
         pipeline.daily_candidate_builder = Mock()
         pipeline.daily_candidate_builder.build.return_value = {
             "builder_hot_candidates": [],
@@ -800,6 +805,7 @@ class PipelineHelpersTest(unittest.TestCase):
         pipeline.daily_curator = Mock()
         pipeline.daily_curator.curate_daily.return_value = {"selections": [], "selection_diversity": ""}
         pipeline.state_manager = Mock()
+        pipeline.state_manager.load_latest_window.return_value = {}
         pipeline.state_manager.load_latest_source_statuses.return_value = {
             "zara_x": {"status": "failed", "attempts": 3, "items_fetched": 0, "error": "timeout"}
         }
@@ -808,6 +814,82 @@ class PipelineHelpersTest(unittest.TestCase):
 
         self.assertEqual(payload["themes"]["degraded_reason"], "builder_source_fetch_failed")
         self.assertEqual(payload["themes"]["degraded_source"], "zara_x")
+
+    def test_x_refresh_site_rebuilds_site_daily_from_base_window_plus_new_x_items(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        base_item = ContentItem(
+            content_id="rss_1",
+            source_type="rss",
+            source_name="simon_willison",
+            title="Story",
+            url="https://example.com/story",
+            author="Simon",
+            published_at=datetime(2026, 5, 19, 1, tzinfo=timezone.utc),
+            fetched_at=datetime(2026, 5, 20, 0, tzinfo=timezone.utc),
+            body="Story body",
+            body_type="article",
+        )
+        fresh_x_item = ContentItem(
+            content_id="zara_x_1",
+            source_type="zara_x",
+            source_name="zara_x",
+            title="Builder post",
+            url="https://x.com/1",
+            author="Aaron Levie",
+            published_at=datetime(2026, 5, 20, 2, tzinfo=timezone.utc),
+            fetched_at=datetime(2026, 5, 20, 8, tzinfo=timezone.utc),
+            body="Builder body",
+            body_type="summary",
+        )
+        pipeline.settings = Mock()
+        pipeline.settings.project_root = Path(".")
+        pipeline.settings.request_timeout_seconds = 30
+        pipeline.state_manager = Mock()
+        pipeline.state_manager.load_latest_window.side_effect = [
+            {
+                "start_at": "2026-05-19T23:00:00+00:00",
+                "end_at": "2026-05-20T23:00:00+00:00",
+                "label_date": "2026-05-20",
+            }
+        ]
+        pipeline.state_manager.load_latest_source_statuses.return_value = {}
+        pipeline.state_manager.save_latest_source_statuses = Mock()
+        pipeline.state_manager.save_seen_ids = Mock()
+        pipeline.state_manager.save_stage_content_ids = Mock()
+        pipeline.state_manager.save_latest_window = Mock()
+        pipeline.state_manager.save_daily_candidates = Mock()
+        pipeline.state_manager.save_daily_themes = Mock()
+        pipeline.state_manager.save_daily_selections = Mock()
+        pipeline.state_manager.write_heartbeat = Mock()
+        pipeline.state_manager.load_seen_ids.return_value = set()
+        pipeline.transcript_store = Mock()
+        pipeline.transcript_store.save_many = Mock()
+        pipeline._safe_fetch_zara = Mock(return_value=[fresh_x_item])
+        pipeline._summarize_zara_source_status = Mock(return_value={"status": "success"})
+        pipeline._load_items_for_daily_report = Mock(return_value=[base_item])
+        pipeline.daily_candidate_builder = Mock()
+        pipeline.daily_candidate_builder.build.return_value = {
+            "builder_hot_candidates": [],
+            "editorial_top10": [{"content_id": "rss_1"}],
+            "editorial_candidates": [{"content_id": "rss_1"}],
+        }
+        pipeline.theme_aggregator = Mock()
+        pipeline.theme_aggregator.aggregate_themes.return_value = {
+            "themes": [],
+            "discussion_dispersion": "dispersed",
+            "spotlight_posts": [],
+        }
+        pipeline.daily_curator = Mock()
+        pipeline.daily_curator.curate_daily.return_value = {"selections": [], "selection_diversity": ""}
+        pipeline._write_daily_report = Mock(return_value=Path("reports/daily/2026-05-20.md"))
+        pipeline._publish_site_report = Mock()
+
+        payload = Pipeline.x_refresh_site(pipeline)
+
+        self.assertTrue(payload["updated"])
+        built_items = pipeline.daily_candidate_builder.build.call_args.args[0]
+        self.assertEqual({item.content_id for item in built_items}, {"rss_1", "zara_x_1"})
+        pipeline._publish_site_report.assert_called_once()
 
 
 if __name__ == "__main__":

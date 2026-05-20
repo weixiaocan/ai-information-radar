@@ -31,12 +31,15 @@ class YouTubeFetcher:
         channels: list[dict[str, Any]],
         seen_ids: set[str],
         recent_days: int,
+        start_at: datetime | None = None,
+        end_at: datetime | None = None,
         max_results_per_channel: int = 20,
         min_duration_minutes: int = 25,
     ) -> list[ContentItem]:
         self._log_runtime_diagnostics()
         results: list[ContentItem] = []
-        cutoff = utc_days_ago(recent_days)
+        cutoff = start_at or utc_days_ago(recent_days)
+        window_end = end_at or utc_now()
         for channel in channels:
             if not channel.get("enabled", True):
                 continue
@@ -45,7 +48,7 @@ class YouTubeFetcher:
                 videos = self._fetch_latest_videos(channel_id, max_results_per_channel)
                 for video in videos:
                     published_at = datetime.fromisoformat(video["published_at"].replace("Z", "+00:00"))
-                    if published_at < cutoff:
+                    if published_at < cutoff or published_at >= window_end:
                         continue
                     if self._is_short(video["id"]):
                         continue
@@ -97,12 +100,15 @@ class YouTubeFetcher:
         playlists: list[dict[str, Any]],
         seen_ids: set[str],
         recent_days: int,
+        start_at: datetime | None = None,
+        end_at: datetime | None = None,
         max_results_per_playlist: int = 20,
         min_duration_minutes: int = 25,
     ) -> list[ContentItem]:
         self._log_runtime_diagnostics()
         results: list[ContentItem] = []
-        cutoff = utc_days_ago(recent_days)
+        cutoff = start_at or utc_days_ago(recent_days)
+        window_end = end_at or utc_now()
         for playlist in playlists:
             if not playlist.get("enabled", True):
                 continue
@@ -110,7 +116,7 @@ class YouTubeFetcher:
                 videos = self._fetch_playlist_videos(playlist["playlist_id"], max_results_per_playlist)
                 for video in videos:
                     published_at = datetime.fromisoformat(video["published_at"].replace("Z", "+00:00"))
-                    if published_at < cutoff:
+                    if published_at < cutoff or published_at >= window_end:
                         continue
                     if self._is_short(video["id"]):
                         continue

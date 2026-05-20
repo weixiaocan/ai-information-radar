@@ -49,7 +49,7 @@ class ZaraFetcherTest(unittest.TestCase):
             "src.ingestion.zara_fetcher.requests.get",
             side_effect=[requests.Timeout("boom"), FakeResponse(payload)],
         ) as mock_get:
-            items = fetcher.fetch(seen_ids=set(), recent_days=1)
+            items = fetcher.fetch(seen_ids=set(), recent_days=30)
 
         self.assertEqual(mock_get.call_count, 2)
         self.assertEqual(len(items), 1)
@@ -65,7 +65,7 @@ class ZaraFetcherTest(unittest.TestCase):
             "src.ingestion.zara_fetcher.requests.get",
             side_effect=requests.Timeout("still failing"),
         ) as mock_get:
-            items = fetcher.fetch(seen_ids=set(), recent_days=1)
+            items = fetcher.fetch(seen_ids=set(), recent_days=30)
 
         self.assertEqual(items, [])
         self.assertEqual(mock_get.call_count, 4)

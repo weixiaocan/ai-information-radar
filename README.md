@@ -88,6 +88,37 @@ D:\anaconda\envs\ai-radar\python.exe main.py --task weekly --deliver
   <img src="docs/images/daily_digest.png" alt="AI Radar daily digest screenshot" width="820" />
 </p>
 
+## Public Site Publishing
+
+This repo can sync generated digests into a separate public site repository.
+
+1. Create and clone a sibling repo such as `..\ai-radar-site`
+2. Copy the Astro starter from [`site_starter/`](./site_starter)
+3. Set the following values in `.env`
+
+```env
+SITE_PUBLISH_ENABLED=true
+SITE_REPO_PATH=..\ai-radar-site
+SITE_GIT_BRANCH=main
+SITE_PUBLISH_TIMEOUT_SECONDS=60
+```
+
+Manual sync and publish:
+
+```powershell
+D:\anaconda\envs\ai-radar\python.exe main.py --task publish-site
+```
+
+Bootstrap the separate site repo from the included starter:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap_site_repo.ps1 -SiteRepoPath ..\ai-radar-site
+cd ..\ai-radar-site
+npm install
+```
+
+After that, `daily` and `weekly` will auto-publish to the site repo when `SITE_PUBLISH_ENABLED=true`.
+
 ## 目录结构
 
 - `src/`：代码

@@ -18,9 +18,17 @@ class RSSFetcher:
         self.timeout_seconds = timeout_seconds
         self.goose = Goose()
 
-    def fetch(self, sources: list[dict], seen_ids: set[str], recent_days: int) -> list[ContentItem]:
+    def fetch(
+        self,
+        sources: list[dict],
+        seen_ids: set[str],
+        recent_days: int,
+        start_at: datetime | None = None,
+        end_at: datetime | None = None,
+    ) -> list[ContentItem]:
         results: list[ContentItem] = []
-        cutoff = utc_days_ago(recent_days)
+        cutoff = start_at or utc_days_ago(recent_days)
+        window_end = end_at or utc_now()
         for source in sources:
             if not source.get("enabled", True):
                 continue
@@ -31,7 +39,7 @@ class RSSFetcher:
                 if content_id in seen_ids:
                     continue
                 item = self._to_content_item(source, entry, content_id)
-                if item.published_at < cutoff:
+                if item.published_at < cutoff or item.published_at >= window_end:
                     continue
                 results.append(item)
         LOGGER.info("Fetched %s new RSS items", len(results))

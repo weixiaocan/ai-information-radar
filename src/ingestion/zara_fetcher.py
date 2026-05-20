@@ -32,14 +32,21 @@ class ZaraFetcher:
         self.retry_delays_seconds = (60, 180, 600)
         self.last_fetch_reports: list[ZaraFetchReport] = []
 
-    def fetch(self, seen_ids: set[str], recent_days: int) -> list[ContentItem]:
+    def fetch(
+        self,
+        seen_ids: set[str],
+        recent_days: int,
+        start_at: datetime | None = None,
+        end_at: datetime | None = None,
+    ) -> list[ContentItem]:
         results: list[ContentItem] = []
-        cutoff = utc_days_ago(recent_days)
+        cutoff = start_at or utc_days_ago(recent_days)
+        window_end = end_at or utc_now()
         self.last_fetch_reports = []
         for feed in self.feeds:
             if not feed.get("enabled", True):
                 continue
-            items, report = self._fetch_single_feed(feed, seen_ids, cutoff)
+            items, report = self._fetch_single_feed(feed, seen_ids, cutoff, window_end)
             results.extend(items)
             self.last_fetch_reports.append(report)
         LOGGER.info("Fetched %s new Zara items", len(results))
@@ -50,6 +57,7 @@ class ZaraFetcher:
         feed: dict[str, Any],
         seen_ids: set[str],
         cutoff: datetime,
+        window_end: datetime,
     ) -> tuple[list[ContentItem], ZaraFetchReport]:
         attempts = 0
         last_error = ""
@@ -64,7 +72,7 @@ class ZaraFetcher:
                 items: list[ContentItem] = []
                 for entry in self._extract_entries(feed_name, payload):
                     item = self._to_content_item(feed, entry)
-                    if item.content_id in seen_ids or item.published_at < cutoff:
+                    if item.content_id in seen_ids or item.published_at < cutoff or item.published_at >= window_end:
                         continue
                     items.append(item)
                 status = "success" if items else "empty"

@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from src.models.content_item import ContentItem
 from src.output.daily_digest import DailyDigestBuilder
 from src.output.feishu_delivery import FeishuDelivery
 from src.output.top_video_report import TopVideoReportWriter
 from src.output.weekly_digest import WeeklyDigestBuilder
+from src.publishing.site_publisher import SitePublisher
 from src.processing.daily_candidate_builder import DailyCandidateBuilder
 from src.processing.daily_curator import DailyCurator
 from src.processing.theme_aggregator import ThemeAggregator
@@ -20,6 +22,8 @@ from src.storage.transcript_store import TranscriptStore
 from src.utils.config import Settings, load_yaml
 from src.utils.llm_client import DeepSeekClient
 from src.utils.transcript_client import TranscriptClient
+
+LOCAL_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
 
 class Pipeline:
@@ -68,6 +72,16 @@ class Pipeline:
             self.state_manager,
         )
         self.feishu = FeishuDelivery(settings.feishu_webhook_url, settings.request_timeout_seconds)
+        self.site_publisher = (
+            SitePublisher(
+                settings.project_root,
+                settings.site_repo_path,
+                git_branch=settings.site_git_branch,
+                timeout_seconds=settings.site_publish_timeout_seconds,
+            )
+            if settings.site_publish_enabled and settings.site_repo_path is not None
+            else None
+        )
         self._last_zara_fetch_reports: list[Any] = []
 
     def ingest(self, recent_days_override: int | None = None, ignore_seen: bool = False) -> list[ContentItem]:
@@ -78,10 +92,20 @@ class Pipeline:
 
         seen_ids = self.state_manager.load_seen_ids()
         effective_seen_ids = set() if ignore_seen else seen_ids
+        window_end = datetime.now(timezone.utc)
         recent_days = (
             recent_days_override
             if recent_days_override is not None
             else (self.settings.bootstrap_days if not seen_ids else self.settings.incremental_days)
+        )
+        previous_window = self.state_manager.load_latest_window("ingest")
+        window_start = self._resolve_ingest_window_start(
+            previous_window,
+            recent_days=recent_days,
+            recent_days_override=recent_days_override,
+            ignore_seen=ignore_seen,
+            seen_ids=seen_ids,
+            window_end=window_end,
         )
         channel_config = load_yaml(self.settings.project_root / "config" / "channels.yaml")
         channels = channel_config.get("channels", [])
@@ -94,11 +118,32 @@ class Pipeline:
             if str(feed.get("name", "")).strip() == "zara_x"
         ]
 
-        youtube_items = self._safe_fetch_youtube(YouTubeFetcher, channels, effective_seen_ids, recent_days)
-        playlist_items = self._safe_fetch_youtube_playlists(YouTubeFetcher, playlists, effective_seen_ids, recent_days)
-        rss_items = self._safe_fetch_rss(RSSFetcher, rss_sources, effective_seen_ids, recent_days)
-        web_items = self._safe_fetch_web(WebFetcher, web_sources, effective_seen_ids, recent_days)
-        zara_items = self._safe_fetch_zara(ZaraFetcher, zara_feeds, effective_seen_ids, recent_days)
+        youtube_items = self._safe_fetch_youtube(
+            YouTubeFetcher,
+            channels,
+            effective_seen_ids,
+            recent_days,
+            window_start,
+            window_end,
+        )
+        playlist_items = self._safe_fetch_youtube_playlists(
+            YouTubeFetcher,
+            playlists,
+            effective_seen_ids,
+            recent_days,
+            window_start,
+            window_end,
+        )
+        rss_items = self._safe_fetch_rss(RSSFetcher, rss_sources, effective_seen_ids, recent_days, window_start, window_end)
+        web_items = self._safe_fetch_web(WebFetcher, web_sources, effective_seen_ids, recent_days, window_start, window_end)
+        zara_items = self._safe_fetch_zara(
+            ZaraFetcher,
+            zara_feeds,
+            effective_seen_ids,
+            recent_days,
+            window_start,
+            window_end,
+        )
         self.state_manager.save_latest_source_statuses(
             {
                 "zara_x": self._summarize_zara_source_status("zara_x"),
@@ -109,9 +154,19 @@ class Pipeline:
         seen_ids.update(item.content_id for item in items)
         self.state_manager.save_seen_ids(seen_ids)
         self.state_manager.save_stage_content_ids("ingest", [item.content_id for item in items])
+        self.state_manager.save_latest_window(
+            "ingest",
+            self._build_window_payload(window_start, window_end),
+        )
         self.state_manager.write_heartbeat(
             "ingest",
-            {"new_items": len(items), "recent_days": recent_days, "ignore_seen": ignore_seen},
+            {
+                "new_items": len(items),
+                "recent_days": recent_days,
+                "ignore_seen": ignore_seen,
+                "window_start": window_start.isoformat(),
+                "window_end": window_end.isoformat(),
+            },
         )
         return items
 
@@ -143,9 +198,10 @@ class Pipeline:
 
     def daily(self, items: list[ContentItem] | None = None, deliver: bool = True) -> dict:
         items = items or self._load_stage_items("tier1")
-        target_date = self._resolve_daily_target_date(items)
+        report_window = self.state_manager.load_latest_window("ingest")
+        target_date = self._resolve_daily_target_date(items, report_window)
         day = target_date.isoformat() if target_date else "latest"
-        daily_items = self._load_items_for_target_date(target_date, items)
+        daily_items = self._load_items_for_daily_report(target_date, report_window, items)
         candidates_data = self.state_manager.load_daily_candidates(day) if target_date else {"builder_hot_candidates": [], "editorial_candidates": []}
         themes_data = self.state_manager.load_daily_themes(day) if target_date else {"themes": [], "discussion_dispersion": "dispersed"}
         selections_data = self.state_manager.load_daily_selections(day) if target_date else {"selections": []}
@@ -159,9 +215,10 @@ class Pipeline:
             warning_payload: dict[str, Any] = {"day": day, **warning}
             self.state_manager.append_invariant_warning(warning_payload)
         payload = self.daily_builder.build(themes_data, selections_data, stats, target_date=target_date, candidates_data=candidates_data)
-        self._write_daily_report(themes_data, selections_data, stats, target_date, candidates_data)
+        report_path = self._write_daily_report(themes_data, selections_data, stats, target_date, candidates_data)
         if deliver:
             self.feishu.send(payload)
+        self._publish_site_report("daily", report_path, day)
         self.state_manager.write_heartbeat(
             "daily",
             {
@@ -175,9 +232,10 @@ class Pipeline:
 
     def daily_curate(self, items: list[ContentItem] | None = None) -> dict[str, dict]:
         items = items or self._load_stage_items("tier1")
-        target_date = self._resolve_daily_target_date(items)
+        report_window = self.state_manager.load_latest_window("ingest")
+        target_date = self._resolve_daily_target_date(items, report_window)
         day = target_date.isoformat() if target_date else "latest"
-        daily_items = self._load_items_for_target_date(target_date, items)
+        daily_items = self._load_items_for_daily_report(target_date, report_window, items)
         candidates = self.daily_candidate_builder.build(daily_items)
         builder_hot_candidates = candidates.get("builder_hot_candidates", [])
         editorial_candidate_ids = {
@@ -215,15 +273,104 @@ class Pipeline:
         )
         return {"candidates": candidates, "themes": themes_data, "selections": selections_data}
 
+    def x_refresh_site(self) -> dict[str, Any]:
+        from src.ingestion.zara_fetcher import ZaraFetcher
+
+        base_window = self.state_manager.load_latest_window("ingest")
+        if not base_window:
+            return {"updated": False, "reason": "missing_ingest_window"}
+
+        refresh_start = self._parse_window_timestamp(base_window.get("end_at"))
+        if refresh_start is None:
+            return {"updated": False, "reason": "missing_ingest_window_end"}
+        refresh_end = datetime.now(timezone.utc)
+
+        seen_ids = self.state_manager.load_seen_ids()
+        zara_feeds = [
+            feed
+            for feed in load_yaml(self.settings.project_root / "config" / "zara_feed.yaml").get("feeds", [])
+            if str(feed.get("name", "")).strip() == "zara_x"
+        ]
+        zara_items = self._safe_fetch_zara(
+            ZaraFetcher,
+            zara_feeds,
+            seen_ids,
+            recent_days=1,
+            start_at=refresh_start,
+            end_at=refresh_end,
+        )
+        self.state_manager.save_latest_source_statuses(
+            {
+                "zara_x": self._summarize_zara_source_status("zara_x"),
+            }
+        )
+        self.transcript_store.save_many(zara_items)
+        seen_ids.update(item.content_id for item in zara_items)
+        self.state_manager.save_seen_ids(seen_ids)
+        self.state_manager.save_stage_content_ids("x_refresh", [item.content_id for item in zara_items])
+        self.state_manager.save_latest_window(
+            "x_refresh",
+            self._build_window_payload(refresh_start, refresh_end),
+        )
+
+        day = str(base_window.get("label_date", "")).strip() or "latest"
+        target_date = date.fromisoformat(day) if day != "latest" else None
+        report_items = self._load_items_for_site_x_refresh(target_date, base_window, zara_items)
+        candidates, themes_data, selections_data, stats = self._build_daily_sections(report_items)
+        self.state_manager.save_daily_candidates(day, candidates)
+        self.state_manager.save_daily_themes(day, themes_data)
+        self.state_manager.save_daily_selections(day, selections_data)
+        report_path = self._write_daily_report(themes_data, selections_data, stats, target_date, candidates)
+        self._publish_site_report("daily", report_path, day)
+        self.state_manager.write_heartbeat(
+            "x_refresh_site",
+            {
+                "new_x_items": len(zara_items),
+                "window_start": refresh_start.isoformat(),
+                "window_end": refresh_end.isoformat(),
+                "report_day": day,
+            },
+        )
+        return {
+            "updated": True,
+            "new_x_items": len(zara_items),
+            "report_day": day,
+        }
+
     def weekly(self, items: list[ContentItem] | None = None, deliver: bool = True) -> dict:
         items = items or self._load_stage_items("tier2")
         self.report_writer.write(items)
         payload = self.weekly_builder.build(items)
-        self._write_weekly_report(items)
+        report_path = self._write_weekly_report(items)
         if deliver:
             self.feishu.send(payload)
+        target_label = report_path.stem if report_path else "latest"
+        self._publish_site_report("weekly", report_path, target_label)
         self.state_manager.write_heartbeat("weekly", {"items": len(items)})
         return payload
+
+    def publish_site(self, report_type: str = "all") -> dict[str, Any]:
+        if self.site_publisher is None:
+            return {"enabled": False, "reason": "site_publishing_disabled"}
+        result = self.site_publisher.publish(report_type, target_label=report_type)
+        self.state_manager.write_heartbeat(
+            "site_publish",
+            {
+                "report_type": report_type,
+                "daily_count": result.synced.daily_count,
+                "weekly_count": result.synced.weekly_count,
+                "changed": result.changed,
+                "commit_message": result.commit_message or "",
+            },
+        )
+        return {
+            "enabled": True,
+            "report_type": report_type,
+            "daily_count": result.synced.daily_count,
+            "weekly_count": result.synced.weekly_count,
+            "changed": result.changed,
+            "commit_message": result.commit_message,
+        }
 
     def _load_stage_items(self, stage: str) -> list[ContentItem]:
         content_ids = self.state_manager.load_stage_content_ids(stage)
@@ -237,12 +384,14 @@ class Pipeline:
         channels: list[dict],
         seen_ids: set[str],
         recent_days: int,
+        start_at: datetime | None = None,
+        end_at: datetime | None = None,
     ) -> list[ContentItem]:
         try:
             return fetcher_cls(
                 self.settings.youtube_api_key,
                 self.settings.request_timeout_seconds,
-            ).fetch(channels, seen_ids, recent_days=recent_days)
+            ).fetch(channels, seen_ids, recent_days=recent_days, start_at=start_at, end_at=end_at)
         except Exception as exc:
             self.state_manager.write_heartbeat("ingest_warning", {"source": "youtube", "error": str(exc)})
             return []
@@ -253,34 +402,72 @@ class Pipeline:
         playlists: list[dict],
         seen_ids: set[str],
         recent_days: int,
+        start_at: datetime | None = None,
+        end_at: datetime | None = None,
     ) -> list[ContentItem]:
         try:
             return fetcher_cls(
                 self.settings.youtube_api_key,
                 self.settings.request_timeout_seconds,
-            ).fetch_playlists(playlists, seen_ids, recent_days=recent_days)
+            ).fetch_playlists(playlists, seen_ids, recent_days=recent_days, start_at=start_at, end_at=end_at)
         except Exception as exc:
             self.state_manager.write_heartbeat("ingest_warning", {"source": "youtube_playlists", "error": str(exc)})
             return []
 
-    def _safe_fetch_rss(self, fetcher_cls, rss_sources: list[dict], seen_ids: set[str], recent_days: int) -> list[ContentItem]:
+    def _safe_fetch_rss(
+        self,
+        fetcher_cls,
+        rss_sources: list[dict],
+        seen_ids: set[str],
+        recent_days: int,
+        start_at: datetime | None = None,
+        end_at: datetime | None = None,
+    ) -> list[ContentItem]:
         try:
-            return fetcher_cls(self.settings.request_timeout_seconds).fetch(rss_sources, seen_ids, recent_days)
+            return fetcher_cls(self.settings.request_timeout_seconds).fetch(
+                rss_sources,
+                seen_ids,
+                recent_days,
+                start_at=start_at,
+                end_at=end_at,
+            )
         except Exception as exc:
             self.state_manager.write_heartbeat("ingest_warning", {"source": "rss", "error": str(exc)})
             return []
 
-    def _safe_fetch_web(self, fetcher_cls, web_sources: list[dict], seen_ids: set[str], recent_days: int) -> list[ContentItem]:
+    def _safe_fetch_web(
+        self,
+        fetcher_cls,
+        web_sources: list[dict],
+        seen_ids: set[str],
+        recent_days: int,
+        start_at: datetime | None = None,
+        end_at: datetime | None = None,
+    ) -> list[ContentItem]:
         try:
-            return fetcher_cls(self.settings.request_timeout_seconds).fetch(web_sources, seen_ids, recent_days)
+            return fetcher_cls(self.settings.request_timeout_seconds).fetch(
+                web_sources,
+                seen_ids,
+                recent_days,
+                start_at=start_at,
+                end_at=end_at,
+            )
         except Exception as exc:
             self.state_manager.write_heartbeat("ingest_warning", {"source": "web", "error": str(exc)})
             return []
 
-    def _safe_fetch_zara(self, fetcher_cls, zara_feeds: list[dict], seen_ids: set[str], recent_days: int) -> list[ContentItem]:
+    def _safe_fetch_zara(
+        self,
+        fetcher_cls,
+        zara_feeds: list[dict],
+        seen_ids: set[str],
+        recent_days: int,
+        start_at: datetime | None = None,
+        end_at: datetime | None = None,
+    ) -> list[ContentItem]:
         try:
             fetcher = fetcher_cls(zara_feeds, self.settings.request_timeout_seconds)
-            items = fetcher.fetch(seen_ids, recent_days)
+            items = fetcher.fetch(seen_ids, recent_days, start_at=start_at, end_at=end_at)
             self._last_zara_fetch_reports = list(getattr(fetcher, "last_fetch_reports", []))
             for report in getattr(fetcher, "last_fetch_reports", []):
                 if getattr(report, "status", "") != "failed":
@@ -374,7 +561,15 @@ class Pipeline:
         path.write_text(self.weekly_builder.render_markdown(items), encoding="utf-8")
         return path
 
-    def _resolve_daily_target_date(self, items: list[ContentItem]) -> date | None:
+    def _resolve_daily_target_date(
+        self,
+        items: list[ContentItem],
+        report_window: dict[str, Any] | None = None,
+    ) -> date | None:
+        if report_window:
+            label = str(report_window.get("label_date", "")).strip()
+            if label:
+                return date.fromisoformat(label)
         item_dates = sorted({item.published_at.date() for item in items}) or self.transcript_store.load_available_dates()
         if not item_dates:
             return None
@@ -389,13 +584,145 @@ class Pipeline:
 
         return item_dates[-1]
 
-    def _load_items_for_target_date(self, target_date: date | None, fallback_items: list[ContentItem]) -> list[ContentItem]:
+    def _load_items_for_report_window(
+        self,
+        report_window: dict[str, Any] | None,
+        fallback_items: list[ContentItem],
+    ) -> list[ContentItem]:
+        if report_window:
+            start_at = self._parse_window_timestamp(report_window.get("start_at"))
+            end_at = self._parse_window_timestamp(report_window.get("end_at"))
+            if start_at and end_at:
+                stored_items = self.transcript_store.load_by_published_range(start_at, end_at)
+                if stored_items:
+                    return stored_items
+                return [item for item in fallback_items if start_at <= item.published_at < end_at]
+        target_date = self._resolve_daily_target_date(fallback_items)
         if not target_date:
             return []
         stored_items = self.transcript_store.load_by_date(target_date)
         if stored_items:
             return stored_items
         return [item for item in fallback_items if item.published_at.date() == target_date]
+
+    def _load_items_for_daily_report(
+        self,
+        target_date: date | None,
+        report_window: dict[str, Any] | None,
+        fallback_items: list[ContentItem],
+    ) -> list[ContentItem]:
+        items = self._load_items_for_report_window(report_window, fallback_items)
+        if not target_date:
+            return items
+
+        zara_items = self.transcript_store.load_by_date(target_date)
+        zara_by_id = {
+            item.content_id: item
+            for item in zara_items
+            if item.source_type == "zara_x"
+        }
+        merged_by_id = {item.content_id: item for item in items if item.source_type != "zara_x"}
+        merged_by_id.update(zara_by_id)
+        return sorted(merged_by_id.values(), key=lambda item: item.published_at)
+
+    def _resolve_ingest_window_start(
+        self,
+        previous_window: dict[str, Any],
+        recent_days: int,
+        recent_days_override: int | None,
+        ignore_seen: bool,
+        seen_ids: set[str],
+        window_end: datetime,
+    ) -> datetime:
+        if not ignore_seen and recent_days_override is None:
+            previous_end = self._parse_window_timestamp(previous_window.get("end_at"))
+            if previous_end:
+                return previous_end
+        if not seen_ids:
+            return window_end - timedelta(days=self.settings.bootstrap_days)
+        return window_end - timedelta(days=recent_days)
+
+    def _build_window_payload(self, start_at: datetime, end_at: datetime) -> dict[str, str]:
+        return {
+            "start_at": start_at.isoformat(),
+            "end_at": end_at.isoformat(),
+            "label_date": start_at.astimezone(LOCAL_TIMEZONE).date().isoformat(),
+        }
+
+    def _parse_window_timestamp(self, value: Any) -> datetime | None:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        return datetime.fromisoformat(text)
+
+    def _build_daily_sections(
+        self,
+        daily_items: list[ContentItem],
+    ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, int]]:
+        candidates = self.daily_candidate_builder.build(daily_items)
+        builder_hot_candidates = candidates.get("builder_hot_candidates", [])
+        editorial_candidate_ids = {
+            str(candidate.get("content_id", "")).strip()
+            for candidate in candidates.get("editorial_top10", [])
+            if str(candidate.get("content_id", "")).strip()
+        }
+        editorial_items = [item for item in daily_items if item.content_id in editorial_candidate_ids]
+        themes_data = self.theme_aggregator.aggregate_themes(daily_items, builder_hot_candidates)
+        latest_source_statuses = self.state_manager.load_latest_source_statuses()
+        zara_x_status = latest_source_statuses.get("zara_x", {})
+        if (
+            not themes_data.get("themes")
+            and not themes_data.get("spotlight_posts")
+            and str(zara_x_status.get("status", "")).strip() == "failed"
+        ):
+            themes_data["degraded_reason"] = "builder_source_fetch_failed"
+            themes_data["degraded_source"] = "zara_x"
+        exclude_ids: set[str] = set()
+        for theme in themes_data.get("themes", []):
+            exclude_ids.update(theme.get("related_content_ids", []))
+        selections_data = self.daily_curator.curate_daily(editorial_items, exclude_ids)
+        stats = {"total": len(daily_items)}
+        return candidates, themes_data, selections_data, stats
+
+    def _load_items_for_site_x_refresh(
+        self,
+        target_date: date | None,
+        base_window: dict[str, Any],
+        fresh_x_items: list[ContentItem],
+    ) -> list[ContentItem]:
+        base_items = self._load_items_for_daily_report(target_date, base_window, [])
+        merged_by_id = {item.content_id: item for item in base_items}
+        for item in fresh_x_items:
+            merged_by_id[item.content_id] = item
+        return sorted(merged_by_id.values(), key=lambda item: item.published_at)
+
+    def _publish_site_report(self, report_type: str, report_path: Path | None, target_label: str) -> None:
+        if self.site_publisher is None:
+            return
+        try:
+            result = self.site_publisher.publish(report_type, target_label=target_label)
+            self.state_manager.write_heartbeat(
+                "site_publish",
+                {
+                    "report_type": report_type,
+                    "target": target_label,
+                    "changed": result.changed,
+                    "commit_message": result.commit_message or "",
+                    "daily_count": result.synced.daily_count,
+                    "weekly_count": result.synced.weekly_count,
+                    "report_path": str(report_path) if report_path else "",
+                },
+            )
+        except Exception as exc:
+            self.state_manager.write_heartbeat(
+                "site_publish_error",
+                {
+                    "report_type": report_type,
+                    "target": target_label,
+                    "report_path": str(report_path) if report_path else "",
+                    "error": str(exc),
+                },
+            )
 
 
 def compute_x_mentions(items: list[ContentItem]) -> dict[str, int]:

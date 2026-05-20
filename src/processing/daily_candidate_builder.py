@@ -82,6 +82,8 @@ class DailyCandidateBuilder:
                 }
             )
 
+        if len(candidates) < min(3, self.builder_candidate_limit):
+            candidates = self._backfill_builder_candidates(builder_items, candidates)
         return candidates[: self.builder_candidate_limit]
 
     def _resolve_builder_source(

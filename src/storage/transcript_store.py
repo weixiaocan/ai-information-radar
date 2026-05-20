@@ -47,6 +47,18 @@ class TranscriptStore:
         items.sort(key=lambda item: item.published_at)
         return items
 
+    def load_by_published_range(self, start_at, end_at) -> list[ContentItem]:
+        items: list[ContentItem] = []
+        for path in self.root.rglob("*.md"):
+            item = self._load_item(path)
+            if not item:
+                continue
+            if item.published_at < start_at or item.published_at >= end_at:
+                continue
+            items.append(item)
+        items.sort(key=lambda item: item.published_at)
+        return items
+
     def load_available_dates(self) -> list[date]:
         dates: list[date] = []
         for path in self.root.iterdir():

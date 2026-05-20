@@ -10,6 +10,8 @@ Recommended setup on Windows:
 3. Test the daily push manually before tomorrow 08:00
    powershell -ExecutionPolicy Bypass -File .\scripts\run_pipeline.ps1 -PythonExe "D:\anaconda\envs\ai-radar\python.exe" -Task daily -Deliver
 
+If `SITE_PUBLISH_ENABLED=true` is set in `.env`, the `daily` and `weekly` tasks will also sync and push the public site repository after the digest is written.
+
 Tasks created by `scripts/register_tasks.ps1`:
 
 1. AI Radar Ingest
@@ -28,11 +30,15 @@ Tasks created by `scripts/register_tasks.ps1`:
    Trigger: Daily at 08:00
    Command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\run_pipeline.ps1" -PythonExe "D:\anaconda\envs\ai-radar\python.exe" -Task daily -Deliver
 
-5. AI Radar Tier2
+5. AI Radar X Refresh Site
+   Trigger: Daily at 16:10
+   Command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\run_pipeline.ps1" -PythonExe "D:\anaconda\envs\ai-radar\python.exe" -Task x-refresh-site
+
+6. AI Radar Tier2
    Trigger: Weekly Sunday at 11:00
    Command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\run_pipeline.ps1" -PythonExe "D:\anaconda\envs\ai-radar\python.exe" -Task tier2
 
-6. AI Radar Weekly Digest
+7. AI Radar Weekly Digest
    Trigger: Weekly Sunday at 12:00
    Command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\run_pipeline.ps1" -PythonExe "D:\anaconda\envs\ai-radar\python.exe" -Task weekly -Deliver
 

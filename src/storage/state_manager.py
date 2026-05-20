@@ -20,6 +20,10 @@ class StateManager:
         self.themes_dir = state_dir / "themes"
         self.selections_dir = state_dir / "selections"
         self.candidates_dir = state_dir / "candidates"
+        self.window_batches = {
+            "ingest": state_dir / "latest_ingest_window.json",
+            "x_refresh": state_dir / "latest_x_refresh_window.json",
+        }
         self.themes_dir.mkdir(parents=True, exist_ok=True)
         self.selections_dir.mkdir(parents=True, exist_ok=True)
         self.candidates_dir.mkdir(parents=True, exist_ok=True)
@@ -27,6 +31,7 @@ class StateManager:
             "ingest": state_dir / "latest_ingest_ids.json",
             "tier1": state_dir / "latest_tier1_ids.json",
             "tier2": state_dir / "latest_tier2_ids.json",
+            "x_refresh": state_dir / "latest_x_refresh_ids.json",
         }
 
     def load_seen_ids(self) -> set[str]:
@@ -80,6 +85,16 @@ class StateManager:
         path = self.stage_batches[stage]
         if not path.exists():
             return []
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def save_latest_window(self, window_name: str, payload: dict[str, Any]) -> None:
+        path = self.window_batches[window_name]
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def load_latest_window(self, window_name: str) -> dict[str, Any]:
+        path = self.window_batches[window_name]
+        if not path.exists():
+            return {}
         return json.loads(path.read_text(encoding="utf-8"))
 
     def save_daily_themes(self, day: str, payload: dict[str, Any]) -> None:
