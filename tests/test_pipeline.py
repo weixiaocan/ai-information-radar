@@ -318,6 +318,120 @@ class PipelineHelpersTest(unittest.TestCase):
         self.assertEqual(len(filtered), 2)
         self.assertEqual([item["content_id"] for item in filtered], ["rss_1", "rss_3"])
 
+    def test_daily_candidate_builder_filters_package_family_release_duplicates(self) -> None:
+        builder = DailyCandidateBuilder(client=Mock(), signal_prompt_path=Path("prompts/theme_signal_extractor.md"))
+        raw_candidates = [
+            {
+                "content_id": "rss_1",
+                "type": "article",
+                "channel_or_source": "simon_willison",
+                "title": "datasette-agent 0.1a3",
+                "url": "https://example.com/datasette-agent",
+                "summary": "Simon Willison 发布 datasette-agent 0.1a3 版本",
+                "keywords": ["datasette-agent"],
+                "source_type": "rss",
+            },
+            {
+                "content_id": "rss_2",
+                "type": "article",
+                "channel_or_source": "simon_willison",
+                "title": "datasette-agent-charts 0.1a2",
+                "url": "https://example.com/datasette-agent-charts",
+                "summary": "Simon Willison 发布 datasette-agent-charts 0.1a2 版本",
+                "keywords": ["datasette-agent-charts"],
+                "source_type": "rss",
+            },
+            {
+                "content_id": "rss_3",
+                "type": "article",
+                "channel_or_source": "verge_ai",
+                "title": "A different story",
+                "url": "https://example.com/different",
+                "summary": "Different topic",
+                "keywords": ["different"],
+                "source_type": "rss",
+            },
+        ]
+
+        filtered = builder._filter_editorial_candidates(raw_candidates)
+        self.assertEqual([item["content_id"] for item in filtered], ["rss_1", "rss_3"])
+
+    def test_daily_candidate_builder_filters_space_and_slug_package_variants(self) -> None:
+        builder = DailyCandidateBuilder(client=Mock(), signal_prompt_path=Path("prompts/theme_signal_extractor.md"))
+        raw_candidates = [
+            {
+                "content_id": "rss_1",
+                "type": "article",
+                "channel_or_source": "simon_willison",
+                "title": "Datasette Agent",
+                "url": "https://example.com/datasette-agent",
+                "summary": "Datasette Agent 发布，可扩展 AI 助手",
+                "keywords": ["datasette-agent"],
+                "source_type": "rss",
+            },
+            {
+                "content_id": "rss_2",
+                "type": "article",
+                "channel_or_source": "simon_willison",
+                "title": "datasette-agent 0.1a3",
+                "url": "https://example.com/datasette-agent-2",
+                "summary": "Simon Willison 发布 datasette-agent 0.1a3 版本",
+                "keywords": ["datasette-agent"],
+                "source_type": "rss",
+            },
+            {
+                "content_id": "rss_3",
+                "type": "article",
+                "channel_or_source": "verge_ai",
+                "title": "A different story",
+                "url": "https://example.com/different",
+                "summary": "Different topic",
+                "keywords": ["different"],
+                "source_type": "rss",
+            },
+        ]
+
+        filtered = builder._filter_editorial_candidates(raw_candidates)
+        self.assertEqual([item["content_id"] for item in filtered], ["rss_1", "rss_3"])
+
+    def test_daily_candidate_builder_prefers_overview_over_release_fragment(self) -> None:
+        builder = DailyCandidateBuilder(client=Mock(), signal_prompt_path=Path("prompts/theme_signal_extractor.md"))
+        raw_candidates = [
+            {
+                "content_id": "rss_release",
+                "type": "article",
+                "channel_or_source": "simon_willison",
+                "title": "datasette-agent 0.1a3",
+                "url": "https://example.com/datasette-agent-2",
+                "summary": "Simon Willison 发布 datasette-agent 0.1a3 版本",
+                "keywords": ["datasette-agent"],
+                "source_type": "rss",
+            },
+            {
+                "content_id": "rss_overview",
+                "type": "article",
+                "channel_or_source": "simon_willison",
+                "title": "Datasette Agent",
+                "url": "https://example.com/datasette-agent",
+                "summary": "Datasette Agent 发布，可扩展 AI 助手，支持对话查询和图表生成",
+                "keywords": ["datasette-agent"],
+                "source_type": "rss",
+            },
+            {
+                "content_id": "rss_other",
+                "type": "article",
+                "channel_or_source": "verge_ai",
+                "title": "A different story",
+                "url": "https://example.com/different",
+                "summary": "Different topic",
+                "keywords": ["different"],
+                "source_type": "rss",
+            },
+        ]
+
+        filtered = builder._filter_editorial_candidates(raw_candidates)
+        self.assertEqual([item["content_id"] for item in filtered], ["rss_overview", "rss_other"])
+
     def test_daily_curator_maps_candidate_index_back_to_candidate_item(self) -> None:
         client = Mock()
         client.daily_selections.return_value = {

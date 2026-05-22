@@ -151,6 +151,59 @@ class DailyDigestBuilderTest(unittest.TestCase):
         self.assertFalse(any("should be hidden" in text for text in card_texts))
         self.assertTrue(any("should be deduped" in text for text in card_texts))
 
+    def test_supplementary_candidates_drop_same_package_family_as_selection(self) -> None:
+        payload = DailyDigestBuilder().build(
+            themes_data={"themes": [], "spotlight_posts": []},
+            selections_data={
+                "selections": [
+                    {
+                        "content_id": "rss_pkg_main",
+                        "type": "article",
+                        "channel_or_source": "simon_willison",
+                        "title": "Datasette Agent",
+                        "url": "https://example.com/datasette-agent",
+                        "value_pitch": "picked",
+                    }
+                ]
+            },
+            stats={"total": 6},
+            candidates_data={
+                "editorial_top10": [
+                    {
+                        "content_id": "rss_pkg_main",
+                        "type": "article",
+                        "channel_or_source": "simon_willison",
+                        "title": "Datasette Agent",
+                        "url": "https://example.com/datasette-agent",
+                        "summary": "picked",
+                    },
+                    {
+                        "content_id": "rss_pkg_variant",
+                        "type": "article",
+                        "channel_or_source": "simon_willison",
+                        "title": "datasette-agent 0.1a3",
+                        "url": "https://example.com/datasette-agent-2",
+                        "summary": "should be hidden as same family",
+                    },
+                    {
+                        "content_id": "rss_other",
+                        "type": "article",
+                        "channel_or_source": "techcrunch_ai",
+                        "title": "Other story",
+                        "url": "https://example.com/other",
+                        "summary": "should remain",
+                    },
+                ]
+            },
+        )
+        card_texts = [
+            element.get("text", {}).get("content", "")
+            for element in payload["card"]["elements"]
+            if element.get("tag") == "div"
+        ]
+        self.assertFalse(any("same family" in text for text in card_texts))
+        self.assertTrue(any("should remain" in text for text in card_texts))
+
     def test_supplementary_candidates_render_in_one_line(self) -> None:
         builder = DailyDigestBuilder()
         line = builder._render_supplementary_line(

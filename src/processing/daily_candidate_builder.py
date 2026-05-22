@@ -38,27 +38,44 @@ class DailyCandidateBuilder:
         if not builder_items:
             return []
 
-        payload = self.client.daily_theme_signals(str(self.signal_prompt_path), builder_items)
+        payload = self._fetch_builder_signal_payload(builder_items)
         items_by_id = {item.content_id: item for item in builder_items}
         items_by_url = {item.url: item for item in builder_items if item.url}
         candidates: list[dict[str, str]] = []
         seen_urls: set[str] = set()
 
         for signal in payload.get("signals", []):
-            content_id = str(signal.get("content_id", "")).strip()
-            source = str(signal.get("source", "")).strip()
-            url = str(signal.get("url", "")).strip()
-            topic_label = str(signal.get("topic_label", "")).strip()
-            core_claim = str(signal.get("core_claim", "")).strip()
-            angle = str(signal.get("angle", "")).strip()
-            excerpt = str(signal.get("excerpt", "")).strip()
-            spotlight_text = str(signal.get("spotlight_text", "")).strip()
+            signal_payload = self._coerce_signal_payload(signal)
+            content_id = signal_payload["content_id"]
+            source = signal_payload["source"]
+            url = signal_payload["url"]
+            topic_label = signal_payload["topic_label"]
+            core_claim = signal_payload["core_claim"]
+            angle = signal_payload["angle"]
+            excerpt = signal_payload["excerpt"]
+            spotlight_text = signal_payload["spotlight_text"]
             if not all([content_id, source, url, topic_label, core_claim, excerpt]):
                 continue
             if url in seen_urls:
                 continue
 
             item = items_by_id.get(content_id)
+            issues = self._collect_single_signal_issues(signal_payload)
+            if issues and item:
+                repaired = self._repair_signal(item, issues)
+                if repaired:
+                    signal_payload = repaired
+                    content_id = signal_payload["content_id"]
+                    source = signal_payload["source"]
+                    url = signal_payload["url"]
+                    topic_label = signal_payload["topic_label"]
+                    core_claim = signal_payload["core_claim"]
+                    angle = signal_payload["angle"]
+                    excerpt = signal_payload["excerpt"]
+                    spotlight_text = signal_payload["spotlight_text"]
+
+            if self._collect_single_signal_issues(signal_payload):
+                continue
             if item and self._is_weak_signal(item, topic_label, core_claim, excerpt):
                 continue
 
@@ -85,6 +102,19 @@ class DailyCandidateBuilder:
         if len(candidates) < min(3, self.builder_candidate_limit):
             candidates = self._backfill_builder_candidates(builder_items, candidates)
         return candidates[: self.builder_candidate_limit]
+
+    def _coerce_signal_payload(self, signal: dict[str, Any] | None) -> dict[str, str]:
+        data = signal or {}
+        return {
+            "content_id": str(data.get("content_id", "")).strip(),
+            "source": str(data.get("source", "")).strip(),
+            "url": str(data.get("url", "")).strip(),
+            "topic_label": str(data.get("topic_label", "")).strip(),
+            "core_claim": str(data.get("core_claim", "")).strip(),
+            "angle": str(data.get("angle", "")).strip(),
+            "excerpt": str(data.get("excerpt", "")).strip(),
+            "spotlight_text": str(data.get("spotlight_text", "")).strip(),
+        }
 
     def _resolve_builder_source(
         self,
@@ -117,11 +147,22 @@ class DailyCandidateBuilder:
             raw_excerpt = (item.ai_summary or item.body or "").strip()
             if not raw_excerpt:
                 continue
+            fallback_signal = None
+            if self._looks_mostly_english(raw_excerpt):
+                fallback_signal = self._synthesize_signal_from_item(item)
+                if not fallback_signal:
+                    continue
             if not self._is_builder_relevant(item, raw_excerpt):
                 continue
             if self._is_backfill_too_weak(item, raw_excerpt):
                 continue
             if self._is_backfill_too_vague(item, raw_excerpt):
+                continue
+
+            if fallback_signal:
+                candidates.append(fallback_signal)
+                existing_ids.add(item.content_id)
+                existing_urls.add(item.url)
                 continue
 
             excerpt = self._truncate_text(raw_excerpt, 60)
@@ -166,7 +207,7 @@ class DailyCandidateBuilder:
         seen_urls: set[str] = set()
         seen_content_ids: set[str] = set()
         source_counts: dict[str, int] = {}
-        topic_counts: dict[str, int] = {}
+        topic_indexes: dict[str, int] = {}
 
         for candidate in candidates:
             content_id = str(candidate.get("content_id", "")).strip()
@@ -178,18 +219,30 @@ class DailyCandidateBuilder:
                 continue
             if content_id in seen_content_ids or url in seen_urls:
                 continue
-            if source_counts.get(source_name, 0) >= self.per_source_limit:
-                continue
 
             topic_key = self._topic_key(title, summary)
-            if topic_counts.get(topic_key, 0) >= self.per_topic_limit:
+            existing_topic_index = topic_indexes.get(topic_key)
+            if existing_topic_index is not None:
+                existing_candidate = filtered[existing_topic_index]
+                if self._prefer_editorial_candidate(candidate, existing_candidate):
+                    old_content_id = str(existing_candidate.get("content_id", "")).strip()
+                    old_url = str(existing_candidate.get("url", "")).strip()
+                    if old_content_id:
+                        seen_content_ids.discard(old_content_id)
+                    if old_url:
+                        seen_urls.discard(old_url)
+                    filtered[existing_topic_index] = candidate
+                    seen_content_ids.add(content_id)
+                    seen_urls.add(url)
+                continue
+            if source_counts.get(source_name, 0) >= self.per_source_limit:
                 continue
 
             seen_content_ids.add(content_id)
             seen_urls.add(url)
             source_counts[source_name] = source_counts.get(source_name, 0) + 1
-            topic_counts[topic_key] = topic_counts.get(topic_key, 0) + 1
             filtered.append(candidate)
+            topic_indexes[topic_key] = len(filtered) - 1
 
         return filtered
 
@@ -291,6 +344,10 @@ class DailyCandidateBuilder:
         return preferred_scores.get(source_name, 0.0)
 
     def _topic_key(self, title: str, summary: str) -> str:
+        package_key = self._package_family_key(title)
+        if package_key:
+            return package_key
+
         text = f"{title} {summary}".lower()
         phrases = [
             "codex",
@@ -314,6 +371,49 @@ class DailyCandidateBuilder:
             if len(token) >= 4 and token not in {"with", "from", "that", "this", "your", "about"}
         ]
         return " ".join(tokens[:3]) or title.lower()
+
+    def _prefer_editorial_candidate(self, candidate: dict[str, Any], existing_candidate: dict[str, Any]) -> bool:
+        candidate_priority = self._editorial_candidate_priority(candidate)
+        existing_priority = self._editorial_candidate_priority(existing_candidate)
+        if candidate_priority != existing_priority:
+            return candidate_priority > existing_priority
+        return str(candidate.get("content_id", "")) < str(existing_candidate.get("content_id", ""))
+
+    def _editorial_candidate_priority(self, candidate: dict[str, Any]) -> tuple[int, int, int, int]:
+        title = str(candidate.get("title", "")).strip()
+        summary = str(candidate.get("summary", "")).strip()
+        is_versioned = self._has_version_marker(title)
+        is_release_note = self._looks_like_release_note(title, summary)
+        token_count = len(re.findall(r"[A-Za-z0-9]+", title))
+        return (
+            0 if is_versioned else 1,
+            0 if is_release_note else 1,
+            1 if token_count <= 3 else 0,
+            len(summary),
+        )
+
+    def _has_version_marker(self, text: str) -> bool:
+        return bool(re.search(r"\b\d+(?:\.\d+)+(?:[a-z]+\d*)?\b", text.lower()))
+
+    def _looks_like_release_note(self, title: str, summary: str) -> bool:
+        haystack = f"{title} {summary}".lower()
+        release_terms = ["version", "release", "released", "发布", "版本", "更新", "changelog"]
+        return any(term in haystack for term in release_terms)
+
+    def _package_family_key(self, title: str) -> str:
+        lowered = title.lower()
+        slug_match = re.search(r"\b([a-z0-9]+(?:[-_][a-z0-9]+)+)\b", lowered)
+        if slug_match:
+            slug = re.sub(r"\b\d+(?:\.\d+)+(?:[a-z]+\d*)?\b", " ", slug_match.group(1))
+            tokens = [token for token in re.split(r"[-_]+", slug) if token and not token.isdigit()]
+            if tokens:
+                return " ".join(tokens[:2])
+
+        normalized_title = re.sub(r"\b\d+(?:\.\d+)+(?:[a-z]+\d*)?\b", " ", lowered)
+        tokens = [token for token in re.findall(r"[a-z0-9]+", normalized_title) if len(token) >= 2]
+        if len(tokens) >= 2 and tokens[1] in {"agent", "plugin", "sdk", "cli", "server", "client", "charts"}:
+            return " ".join(tokens[:2])
+        return ""
 
     def _is_backfill_too_weak(self, item: ContentItem, text: str) -> bool:
         del item
@@ -402,6 +502,10 @@ class DailyCandidateBuilder:
         ]
         for candidate in candidates:
             if not candidate:
+                continue
+            if self._looks_mostly_english(candidate):
+                continue
+            if self._looks_truncated(candidate):
                 continue
             if self._is_spotlight_sentence_good(candidate):
                 return self._truncate_text(candidate, 90)
@@ -511,6 +615,91 @@ class DailyCandidateBuilder:
         if len(stripped) <= max_len:
             return stripped
         return stripped[: max_len - 1].rstrip() + "…"
+
+    def _fetch_builder_signal_payload(self, builder_items: list[ContentItem]) -> dict[str, Any]:
+        payload = self.client.daily_theme_signals(str(self.signal_prompt_path), builder_items)
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            issues = self._collect_signal_issues(payload)
+            if not issues:
+                return payload
+            if attempt == max_attempts:
+                return payload
+            payload = self.client.daily_theme_signals(str(self.signal_prompt_path), builder_items, feedback=issues)
+        return payload
+
+    def _collect_signal_issues(self, payload: dict[str, Any] | None) -> list[str]:
+        issues: list[str] = []
+        data = payload or {}
+        for index, signal in enumerate(data.get("signals", [])[:10], start=1):
+            for issue in self._collect_single_signal_issues(self._coerce_signal_payload(signal)):
+                issues.append(f"Signal {index} {issue}")
+        return issues
+
+    def _collect_single_signal_issues(self, signal: dict[str, str]) -> list[str]:
+        issues: list[str] = []
+        for field in ("topic_label", "core_claim", "excerpt", "spotlight_text"):
+            value = str(signal.get(field, "")).strip()
+            if not value:
+                issues.append(f"missing `{field}`.")
+                continue
+            if self._looks_mostly_english(value):
+                issues.append(f"`{field}` must be rewritten into natural Chinese.")
+            if field != "topic_label" and self._looks_truncated(value):
+                issues.append(f"`{field}` is truncated; rewrite it as a complete sentence.")
+        return issues
+
+    def _repair_signal(self, item: ContentItem, issues: list[str]) -> dict[str, str] | None:
+        payload = self.client.daily_theme_signals(str(self.signal_prompt_path), [item], feedback=issues)
+        signals = payload.get("signals", [])
+        if not signals:
+            return None
+        repaired = self._coerce_signal_payload(signals[0])
+        repaired["content_id"] = item.content_id
+        if item.url:
+            repaired["url"] = item.url
+        if not repaired.get("source"):
+            repaired["source"] = item.author or item.source_name
+        return repaired
+
+    def _synthesize_signal_from_item(self, item: ContentItem) -> dict[str, str] | None:
+        issues = [
+            "rewrite this post into concise natural Chinese.",
+            "`topic_label`, `core_claim`, `excerpt`, and `spotlight_text` must all be complete Chinese sentences or phrases.",
+            "`spotlight_text` must be a concrete factual sentence rather than a vague comment.",
+        ]
+        repaired = self._repair_signal(item, issues)
+        if not repaired:
+            return None
+        if self._collect_single_signal_issues(repaired):
+            return None
+        source = self._resolve_builder_source(repaired.get("source", ""), item, item)
+        return {
+            "content_id": item.content_id,
+            "source": source,
+            "url": item.url,
+            "topic_label": repaired["topic_label"],
+            "core_claim": repaired["core_claim"],
+            "angle": repaired["angle"],
+            "excerpt": repaired["excerpt"],
+            "spotlight_text": self._resolve_spotlight_text(
+                source=source,
+                spotlight_text=repaired["spotlight_text"],
+                excerpt=repaired["excerpt"],
+                core_claim=repaired["core_claim"],
+            ),
+        }
+
+    def _looks_mostly_english(self, text: str) -> bool:
+        ascii_letters = len(re.findall(r"[A-Za-z]", text))
+        chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", text))
+        return ascii_letters >= 12 and ascii_letters > chinese_chars
+
+    def _looks_truncated(self, text: str) -> bool:
+        normalized = text.strip()
+        if not normalized:
+            return False
+        return normalized.endswith(("...", "…", "/", "-", ":", "："))
 
     def _is_weak_signal(
         self,

@@ -48,3 +48,8 @@
 - No multi-provider LLM abstraction beyond a single provider-ready client surface.
 - No Feishu feedback loop in V1.
 - No weekly report built by concatenating daily reports.
+
+## Workflow
+
+- At the end of each task, if the project has been modified, automatically create a git commit unless the user explicitly says not to commit.
+- Use a clear non-interactive commit message that summarizes the completed change.

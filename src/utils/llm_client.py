@@ -148,7 +148,12 @@ class DeepSeekClient:
             payload = self._chat_completion_json(retry_prompt, model="deepseek-chat", max_tokens=2800)
         return payload
 
-    def daily_theme_signals(self, prompt_path: str, items: list[ContentItem]) -> dict[str, Any]:
+    def daily_theme_signals(
+        self,
+        prompt_path: str,
+        items: list[ContentItem],
+        feedback: list[str] | None = None,
+    ) -> dict[str, Any]:
         prompt_template = load_prompt(Path(prompt_path))
         builder_posts = [
             {
@@ -166,6 +171,13 @@ class DeepSeekClient:
             n_posts=len(builder_posts),
             builder_posts=json.dumps(builder_posts, ensure_ascii=False, indent=2),
         )
+        if feedback:
+            prompt += (
+                "\n\n【上一版输出存在以下问题，请严格修正后重写完整 JSON】\n- "
+                + "\n- ".join(feedback)
+                + "\n请保留同样的 JSON 结构；`topic_label`、`core_claim`、`excerpt`、`spotlight_text` 都必须是自然中文。"
+                "\n除专有名词外，不要直接输出英文原帖；不要截断句子；`spotlight_text` 必须是一句完整中文事实句。"
+            )
         return self._chat_completion_json(prompt, model="deepseek-chat", max_tokens=2200)
 
     def daily_themes(

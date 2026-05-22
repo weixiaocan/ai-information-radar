@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -220,6 +221,15 @@ class DailyDigestBuilder:
             for selection in selections
             if str(selection.get("content_id", "")).strip()
         }
+        displayed_editorial_keys = {
+            self._editorial_dedup_key(
+                str(selection.get("title", "")).strip(),
+                str(selection.get("url", "")).strip(),
+            )
+            for selection in selections
+            if str(selection.get("type", "")).strip().lower() != "builder"
+        }
+        displayed_editorial_keys.discard("")
         displayed_builder_urls = {
             str(post.get("url", "")).strip()
             for post in spotlight_posts
@@ -247,9 +257,14 @@ class DailyDigestBuilder:
             for candidate in editorial_pool:
                 content_id = str(candidate.get("content_id", "")).strip()
                 source_name = str(candidate.get("channel_or_source", "")).strip()
+                title = str(candidate.get("title", "")).strip()
+                url = str(candidate.get("url", "")).strip()
+                dedup_key = self._editorial_dedup_key(title, url)
                 if not content_id or not source_name:
                     continue
                 if content_id in displayed_selection_ids or content_id in related_ids:
+                    continue
+                if dedup_key and dedup_key in displayed_editorial_keys:
                     continue
                 if any(item.get("content_id") == content_id for item in supplementary):
                     continue
@@ -260,12 +275,14 @@ class DailyDigestBuilder:
                         "content_id": content_id,
                         "type": str(candidate.get("type", "article")).strip().lower(),
                         "source_name": source_name,
-                        "title": str(candidate.get("title", "")).strip(),
-                        "url": str(candidate.get("url", "")).strip(),
+                        "title": title,
+                        "url": url,
                         "brief": self._strip_terminal_punctuation(str(candidate.get("summary", "")).strip()),
                     }
                 )
                 source_counts[source_name] = source_counts.get(source_name, 0) + 1
+                if dedup_key:
+                    displayed_editorial_keys.add(dedup_key)
                 if len(supplementary) >= supplementary_limit:
                     return supplementary
 
@@ -344,6 +361,32 @@ class DailyDigestBuilder:
                 supplementary_ids.add(content_id)
 
         return normalized_selections, normalized_supplementary
+
+    def _editorial_dedup_key(self, title: str, url: str) -> str:
+        package_key = self._package_family_key(title)
+        if package_key:
+            return package_key
+        normalized_url = url.strip().lower()
+        if normalized_url:
+            return normalized_url
+        return title.strip().lower()
+
+    def _package_family_key(self, title: str) -> str:
+        lowered = title.lower()
+        slug_match = re.search(r"\b([a-z0-9]+(?:[-_][a-z0-9]+)+)\b", lowered)
+        if slug_match:
+            slug = re.sub(r"\b\d+(?:\.\d+)+(?:[a-z]+\d*)?\b", " ", slug_match.group(1))
+            tokens = [token for token in re.split(r"[-_]+", slug) if token and not token.isdigit()]
+            if tokens:
+                return "pkg:" + " ".join(tokens[:2])
+
+        normalized_title = re.sub(r"\b\d+(?:\.\d+)+(?:[a-z]+\d*)?\b", " ", lowered)
+        tokens = [token for token in re.findall(r"[a-z0-9]+", normalized_title) if len(token) >= 2]
+        if len(tokens) >= 2 and tokens[1] in {"agent", "plugin", "sdk", "cli", "server", "client", "charts"}:
+            return "pkg:" + " ".join(tokens[:2])
+        if not tokens:
+            return ""
+        return ""
 
     def _warn_on_url_conflicts(
         self,
