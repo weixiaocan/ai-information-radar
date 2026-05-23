@@ -98,6 +98,7 @@ class PipelineHelpersTest(unittest.TestCase):
         pipeline.transcript_store.load_by_date.return_value = [target_item]
         pipeline.state_manager = Mock()
         pipeline.state_manager.load_latest_window.return_value = {}
+        pipeline.state_manager.resolve_latest_daily_run_id.return_value = None
         pipeline.state_manager.load_daily_candidates.return_value = {"builder_hot_candidates": [], "editorial_candidates": []}
         pipeline.state_manager.load_daily_themes.return_value = {"themes": [], "discussion_dispersion": "dispersed"}
         pipeline.state_manager.load_daily_selections.return_value = {"selections": []}
@@ -139,6 +140,7 @@ class PipelineHelpersTest(unittest.TestCase):
         pipeline.transcript_store.load_by_date.return_value = [target_item]
         pipeline.state_manager = Mock()
         pipeline.state_manager.load_latest_window.return_value = {}
+        pipeline.state_manager.resolve_latest_daily_run_id.return_value = None
         pipeline.state_manager.load_daily_candidates.return_value = {"builder_hot_candidates": [], "editorial_candidates": []}
         pipeline.state_manager.load_daily_themes.return_value = {"themes": [], "discussion_dispersion": "dispersed"}
         pipeline.state_manager.load_daily_selections.return_value = {"selections": []}
@@ -171,6 +173,46 @@ class PipelineHelpersTest(unittest.TestCase):
         heartbeat_metadata = pipeline.state_manager.write_heartbeat.call_args.args[1]
         self.assertEqual(heartbeat_metadata["invariant_warnings"], 1)
         self.assertEqual(payload, {"msg_type": "interactive"})
+
+    def test_daily_reads_explicit_run_artifact(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        target_item = ContentItem(
+            content_id="rss_target",
+            source_type="rss",
+            source_name="simon_willison",
+            title="Target",
+            url="https://example.com/target",
+            author="Simon",
+            published_at=datetime(2026, 5, 3, 12, tzinfo=timezone.utc),
+            fetched_at=datetime(2026, 5, 4, 1, tzinfo=timezone.utc),
+            body="Target body",
+            body_type="article",
+        )
+        pipeline._load_stage_items = Mock(return_value=[target_item])
+        pipeline.transcript_store = Mock()
+        pipeline.transcript_store.load_available_dates.return_value = [date(2026, 5, 3)]
+        pipeline.transcript_store.load_by_date.return_value = [target_item]
+        pipeline.state_manager = Mock()
+        pipeline.state_manager.load_latest_window.return_value = {}
+        pipeline.state_manager.load_daily_candidates.return_value = {"builder_hot_candidates": [], "editorial_candidates": []}
+        pipeline.state_manager.load_daily_themes.return_value = {"themes": [], "discussion_dispersion": "dispersed"}
+        pipeline.state_manager.load_daily_selections.return_value = {"selections": []}
+        pipeline.state_manager.write_heartbeat = Mock()
+        pipeline.daily_builder = Mock()
+        pipeline.daily_builder.collect_invariant_warnings.return_value = []
+        pipeline.daily_builder.build.return_value = {"msg_type": "interactive"}
+        pipeline._write_daily_report = Mock()
+        pipeline.feishu = Mock()
+        pipeline.site_publisher = None
+
+        with unittest.mock.patch("src.pipeline.date") as mock_date:
+            mock_date.today.return_value = date(2026, 5, 4)
+            mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+            Pipeline.daily(pipeline, deliver=False, run_id="run-123")
+
+        pipeline.state_manager.load_daily_candidates.assert_called_once_with("2026-05-03", "run-123")
+        pipeline.state_manager.load_daily_themes.assert_called_once_with("2026-05-03", "run-123")
+        pipeline.state_manager.load_daily_selections.assert_called_once_with("2026-05-03", "run-123")
 
     def test_compute_x_mentions_matches_video_id_and_url(self) -> None:
         youtube_item = ContentItem(
@@ -974,6 +1016,56 @@ class PipelineHelpersTest(unittest.TestCase):
         self.assertEqual(payload["themes"]["degraded_stage"], "builder_decision")
         self.assertEqual(payload["themes"]["fallback_mode"], "empty_themes")
         self.assertEqual(payload["themes"]["degraded_source"], "zara_x")
+
+    def test_daily_curate_creates_run_versioned_state(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        target_item = ContentItem(
+            content_id="rss_1",
+            source_type="rss",
+            source_name="simon_willison",
+            title="Story",
+            url="https://example.com/story",
+            author="Simon",
+            published_at=datetime(2026, 5, 3, 12, tzinfo=timezone.utc),
+            fetched_at=datetime(2026, 5, 4, 1, tzinfo=timezone.utc),
+            body="Story body",
+            body_type="article",
+        )
+        pipeline._load_stage_items = Mock(return_value=[target_item])
+        pipeline._resolve_daily_target_date = Mock(return_value=date(2026, 5, 3))
+        pipeline._load_items_for_daily_report = Mock(return_value=[target_item])
+        pipeline.daily_candidate_builder = Mock()
+        pipeline.daily_candidate_builder.build.return_value = {
+            "builder_hot_candidates": [],
+            "editorial_top10": [],
+            "editorial_candidates": [],
+        }
+        pipeline.theme_aggregator = Mock()
+        pipeline.theme_aggregator.aggregate_themes.return_value = {
+            "themes": [],
+            "discussion_dispersion": "dispersed",
+            "spotlight_posts": [],
+        }
+        pipeline.daily_curator = Mock()
+        pipeline.daily_curator.curate_daily.return_value = {"selections": [], "selection_diversity": ""}
+        pipeline.daily_decision_resolver = Mock()
+        pipeline.daily_decision_resolver.resolve.return_value = (
+            {"builder_hot_candidates": [], "editorial_top10": [], "editorial_candidates": []},
+            {"themes": [], "discussion_dispersion": "dispersed", "spotlight_posts": []},
+            {"selections": [], "selection_diversity": ""},
+        )
+        pipeline.state_manager = Mock()
+        pipeline.state_manager.load_latest_window.return_value = {"label_date": "2026-05-03"}
+        pipeline.state_manager.load_latest_source_statuses.return_value = {}
+        pipeline.state_manager.create_daily_run.return_value = "run-123"
+
+        payload = Pipeline.daily_curate(pipeline)
+
+        self.assertEqual(payload["run_id"], "run-123")
+        pipeline.state_manager.save_daily_candidates.assert_called_once_with("2026-05-03", unittest.mock.ANY, "run-123")
+        pipeline.state_manager.save_daily_themes.assert_called_once_with("2026-05-03", unittest.mock.ANY, "run-123")
+        pipeline.state_manager.save_daily_selections.assert_called_once_with("2026-05-03", unittest.mock.ANY, "run-123")
+        pipeline.state_manager.finalize_daily_run.assert_called_once()
 
     def test_x_refresh_site_rebuilds_site_daily_from_base_window_plus_new_x_items(self) -> None:
         pipeline = Pipeline.__new__(Pipeline)

@@ -206,19 +206,24 @@ class Pipeline:
         )
         return merged_items
 
-    def daily(self, items: list[ContentItem] | None = None, deliver: bool = True) -> dict:
+    def daily(self, items: list[ContentItem] | None = None, deliver: bool = True, run_id: str | None = None) -> dict:
         items = items or self._load_stage_items("tier1")
         report_window = self.state_manager.load_latest_window("ingest")
         target_date = self._resolve_daily_target_date(items, report_window)
         day = target_date.isoformat() if target_date else "latest"
+        resolved_run_id = run_id or (self.state_manager.resolve_latest_daily_run_id(day) if target_date else None)
         daily_items = self._load_items_for_daily_report(target_date, report_window, items)
         candidates_data = (
-            self.state_manager.load_daily_candidates(day)
+            self.state_manager.load_daily_candidates(day, resolved_run_id)
             if target_date
             else normalize_daily_candidates_payload({"builder_hot_candidates": [], "editorial_candidates": []})
         )
-        themes_data = self.state_manager.load_daily_themes(day) if target_date else {"themes": [], "discussion_dispersion": "dispersed"}
-        selections_data = self.state_manager.load_daily_selections(day) if target_date else {"selections": []}
+        themes_data = (
+            self.state_manager.load_daily_themes(day, resolved_run_id)
+            if target_date
+            else {"themes": [], "discussion_dispersion": "dispersed"}
+        )
+        selections_data = self.state_manager.load_daily_selections(day, resolved_run_id) if target_date else {"selections": []}
         stats = {"total": len(daily_items)}
         invariant_warnings = self.daily_builder.collect_invariant_warnings(
             themes_data,
@@ -240,15 +245,17 @@ class Pipeline:
                 "themes": len(themes_data.get("themes", [])),
                 "selections": len(selections_data.get("selections", [])),
                 "invariant_warnings": len(invariant_warnings),
+                "run_id": resolved_run_id or "",
             },
         )
         return payload
 
-    def daily_curate(self, items: list[ContentItem] | None = None) -> dict[str, dict]:
+    def daily_curate(self, items: list[ContentItem] | None = None, run_id: str | None = None) -> dict[str, Any]:
         items = items or self._load_stage_items("tier1")
         report_window = self.state_manager.load_latest_window("ingest")
         target_date = self._resolve_daily_target_date(items, report_window)
         day = target_date.isoformat() if target_date else "latest"
+        resolved_run_id = run_id or self.state_manager.create_daily_run(day, source_window=report_window, status="curating")
         daily_items = self._load_items_for_daily_report(target_date, report_window, items)
         candidates = self.daily_candidate_builder.build(daily_items)
         candidates = normalize_daily_candidates_payload(candidates)
@@ -281,9 +288,18 @@ class Pipeline:
             themes_data,
             selections_data,
         )
-        self.state_manager.save_daily_candidates(day, candidates)
-        self.state_manager.save_daily_themes(day, themes_data)
-        self.state_manager.save_daily_selections(day, selections_data)
+        self.state_manager.save_daily_candidates(day, candidates, resolved_run_id)
+        self.state_manager.save_daily_themes(day, themes_data, resolved_run_id)
+        self.state_manager.save_daily_selections(day, selections_data, resolved_run_id)
+        self.state_manager.finalize_daily_run(
+            day,
+            resolved_run_id,
+            status="completed",
+            candidates=candidates,
+            themes=themes_data,
+            selections=selections_data,
+            source_window=report_window,
+        )
         self.state_manager.write_heartbeat(
             "daily_curate",
             {
@@ -292,9 +308,10 @@ class Pipeline:
                 "editorial_candidates": len(editorial_items),
                 "themes": len(themes_data.get("themes", [])),
                 "selections": len(selections_data.get("selections", [])),
+                "run_id": resolved_run_id,
             },
         )
-        return {"candidates": candidates, "themes": themes_data, "selections": selections_data}
+        return {"run_id": resolved_run_id, "day": day, "candidates": candidates, "themes": themes_data, "selections": selections_data}
 
     def x_refresh_site(self) -> dict[str, Any]:
         from src.ingestion.zara_fetcher import ZaraFetcher
@@ -388,9 +405,19 @@ class Pipeline:
         target_date = date.fromisoformat(day) if day != "latest" else None
         report_items = self._load_items_for_site_x_refresh(target_date, base_window, zara_items)
         candidates, themes_data, selections_data, stats = self._build_daily_sections(report_items)
-        self.state_manager.save_daily_candidates(day, candidates)
-        self.state_manager.save_daily_themes(day, themes_data)
-        self.state_manager.save_daily_selections(day, selections_data)
+        run_id = self.state_manager.create_daily_run(day, source_window=base_window, status="refreshing")
+        self.state_manager.save_daily_candidates(day, candidates, run_id)
+        self.state_manager.save_daily_themes(day, themes_data, run_id)
+        self.state_manager.save_daily_selections(day, selections_data, run_id)
+        self.state_manager.finalize_daily_run(
+            day,
+            run_id,
+            status="completed",
+            candidates=candidates,
+            themes=themes_data,
+            selections=selections_data,
+            source_window=base_window,
+        )
         report_path = self._write_daily_report(themes_data, selections_data, stats, target_date, candidates)
         self._publish_site_report("daily", report_path, day)
         self.state_manager.write_heartbeat(
@@ -402,12 +429,14 @@ class Pipeline:
                 "window_end": refresh_end.isoformat(),
                 "report_day": day,
                 "site_updated": True,
+                "run_id": run_id,
             },
         )
         return {
             "updated": True,
             "new_x_items": len(zara_items),
             "report_day": day,
+            "run_id": run_id,
             "source_status": zara_status,
         }
 
