@@ -971,6 +971,8 @@ class PipelineHelpersTest(unittest.TestCase):
         payload = Pipeline.daily_curate(pipeline)
 
         self.assertEqual(payload["themes"]["degraded_reason"], "builder_source_fetch_failed")
+        self.assertEqual(payload["themes"]["degraded_stage"], "builder_decision")
+        self.assertEqual(payload["themes"]["fallback_mode"], "empty_themes")
         self.assertEqual(payload["themes"]["degraded_source"], "zara_x")
 
     def test_x_refresh_site_rebuilds_site_daily_from_base_window_plus_new_x_items(self) -> None:

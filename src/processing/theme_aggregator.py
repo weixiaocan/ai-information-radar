@@ -13,6 +13,7 @@ from src.utils.daily_state import (
     builder_candidate_copy,
     builder_candidate_decision,
     normalize_theme,
+    with_degraded_fields,
 )
 from src.utils.llm_client import DeepSeekClient
 from src.utils.source_labels import get_original_source_name
@@ -42,12 +43,22 @@ class ThemeAggregator:
 
         try:
             if len(signals) < 3:
-                return self._empty_result(signals, source_by_url, source_by_content_id)
+                return with_degraded_fields(
+                    self._empty_result(signals, source_by_url, source_by_content_id),
+                    degraded_reason="theme_membership_failed",
+                    degraded_stage="theme_decision",
+                    fallback_mode="spotlight_only",
+                )
 
             decisions_payload = self._fetch_theme_decisions(today_items, signals)
             normalized_decisions = self._normalize_decisions(decisions_payload)
             if not normalized_decisions["themes"]:
-                return self._empty_result(signals, source_by_url, source_by_content_id)
+                return with_degraded_fields(
+                    self._empty_result(signals, source_by_url, source_by_content_id),
+                    degraded_reason="theme_membership_failed",
+                    degraded_stage="theme_decision",
+                    fallback_mode="spotlight_only",
+                )
 
             copy_payload = self._fetch_theme_copy(today_items, signals, normalized_decisions)
             normalized = self._normalize_copy(
@@ -59,10 +70,27 @@ class ThemeAggregator:
             )
         except Exception:
             LOGGER.exception("Theme aggregation failed")
-            return {"themes": [], "discussion_dispersion": "dispersed", "spotlight_posts": []}
+            return with_degraded_fields(
+                {"themes": [], "discussion_dispersion": "dispersed", "spotlight_posts": []},
+                degraded_reason="theme_membership_failed",
+                degraded_stage="theme_decision",
+                fallback_mode="empty_themes",
+            )
 
         if not normalized.get("themes"):
-            return self._empty_result(signals, source_by_url, source_by_content_id)
+            return with_degraded_fields(
+                self._empty_result(signals, source_by_url, source_by_content_id),
+                degraded_reason="theme_membership_failed",
+                degraded_stage="theme_decision",
+                fallback_mode="spotlight_only",
+            )
+        if any(theme.get("degraded_stage") for theme in normalized.get("themes", [])):
+            return with_degraded_fields(
+                normalized,
+                degraded_reason="theme_copy_failed",
+                degraded_stage="theme_copy",
+                fallback_mode="theme_copy_from_signals",
+            )
         return normalized
 
     def _fetch_theme_decisions(
@@ -307,7 +335,7 @@ class ThemeAggregator:
         fallback_title, fallback_summary = self._fallback_theme_copy(member_content_ids, signal_by_content_id)
         theme_title = str(copy_payload.get("theme_title") or copy_payload.get("theme") or "").strip() or fallback_title
         theme_summary = str(copy_payload.get("theme_summary") or copy_payload.get("summary") or "").strip() or fallback_summary
-        return normalize_theme(
+        theme_payload = normalize_theme(
             {
                 "decision": {
                     "theme_id": decision["theme_id"],
@@ -322,6 +350,14 @@ class ThemeAggregator:
                 },
             }
         )
+        if not copy_payload.get("theme_title") or not copy_payload.get("theme_summary") or not copy_payload.get("evidence"):
+            return with_degraded_fields(
+                theme_payload,
+                degraded_reason="theme_copy_failed",
+                degraded_stage="theme_copy",
+                fallback_mode="copy_from_member_signals",
+            )
+        return theme_payload
 
     def _fallback_theme_copy(
         self,

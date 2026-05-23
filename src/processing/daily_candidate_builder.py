@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from src.models.content_item import ContentItem
-from src.utils.daily_state import builder_candidate_decision, normalize_builder_hot_candidate
+from src.utils.daily_state import builder_candidate_decision, normalize_builder_hot_candidate, with_degraded_fields
 from src.utils.llm_client import DeepSeekClient
 from src.utils.source_labels import get_original_source_name
 
@@ -28,13 +28,28 @@ class DailyCandidateBuilder:
         editorial_candidates_raw = self._build_editorial_candidates(editorial_items)
         editorial_candidates_filtered = self._filter_editorial_candidates(editorial_candidates_raw)
         editorial_top10 = self._rank_editorial_candidates(editorial_candidates_filtered)[: self.editorial_top_n]
-        return {
+        payload = {
             "builder_hot_candidates": builder_hot_candidates,
             "editorial_candidates_raw": editorial_candidates_raw,
             "editorial_candidates_filtered": editorial_candidates_filtered,
             "editorial_top10": editorial_top10,
             "editorial_candidates": editorial_top10,
         }
+        if builder_items and not builder_hot_candidates:
+            return with_degraded_fields(
+                payload,
+                degraded_reason="builder_decision_failed",
+                degraded_stage="builder_decision",
+                fallback_mode="empty_hot_pool",
+            )
+        if any(candidate.get("degraded_stage") for candidate in builder_hot_candidates):
+            return with_degraded_fields(
+                payload,
+                degraded_reason="builder_copy_failed",
+                degraded_stage="builder_copy",
+                fallback_mode="per_item_copy_fallback",
+            )
+        return payload
 
     def _build_builder_hot_candidates(self, builder_items: list[ContentItem]) -> list[dict[str, Any]]:
         if not builder_items:
@@ -62,10 +77,12 @@ class DailyCandidateBuilder:
 
             item = items_by_id.get(content_id)
             copy_payload = copy_by_content_id.get(content_id)
+            used_copy_fallback = False
             if copy_payload and self._collect_single_signal_issues(copy_payload):
                 copy_payload = None
             if not copy_payload:
                 copy_payload = self._fallback_builder_copy(item, topic_key, source)
+                used_copy_fallback = True
 
             topic_label = copy_payload["topic_label"]
             core_claim = copy_payload["core_claim"]
@@ -75,23 +92,29 @@ class DailyCandidateBuilder:
 
             seen_urls.add(url)
             resolved_source = self._resolve_builder_source(source, item, items_by_url.get(url))
-            candidates.append(
-                self._make_builder_hot_candidate(
-                    content_id=content_id,
+            candidate = self._make_builder_hot_candidate(
+                content_id=content_id,
+                source=resolved_source,
+                url=url,
+                topic_label=topic_label,
+                core_claim=core_claim,
+                angle=copy_payload["angle"],
+                excerpt=excerpt,
+                spotlight_text=self._resolve_spotlight_text(
                     source=resolved_source,
-                    url=url,
-                    topic_label=topic_label,
-                    core_claim=core_claim,
-                    angle=copy_payload["angle"],
+                    spotlight_text=copy_payload["spotlight_text"],
                     excerpt=excerpt,
-                    spotlight_text=self._resolve_spotlight_text(
-                        source=resolved_source,
-                        spotlight_text=copy_payload["spotlight_text"],
-                        excerpt=excerpt,
-                        core_claim=core_claim,
-                    ),
-                )
+                    core_claim=core_claim,
+                ),
             )
+            if used_copy_fallback:
+                candidate = with_degraded_fields(
+                    candidate,
+                    degraded_reason="builder_copy_failed",
+                    degraded_stage="builder_copy",
+                    fallback_mode="copy_from_item_excerpt",
+                )
+            candidates.append(candidate)
 
         if len(candidates) < min(3, self.builder_candidate_limit):
             candidates = self._backfill_builder_candidates(builder_items, candidates)
@@ -172,7 +195,8 @@ class DailyCandidateBuilder:
             source = item.author or item.source_name
             spotlight_text = self._truncate_text(self._normalize_spotlight_text(source, raw_excerpt), 90)
             candidates.append(
-                normalize_builder_hot_candidate(
+                with_degraded_fields(
+                    normalize_builder_hot_candidate(
                     {
                         "decision": {
                             "content_id": item.content_id,
@@ -189,6 +213,10 @@ class DailyCandidateBuilder:
                             "spotlight_text": spotlight_text,
                         },
                     }
+                    ),
+                    degraded_reason="builder_decision_failed",
+                    degraded_stage="builder_decision",
+                    fallback_mode="backfill_from_item",
                 )
             )
             existing_ids.add(item.content_id)
@@ -712,7 +740,8 @@ class DailyCandidateBuilder:
         repaired = copy_payloads[0] if copy_payloads else self._fallback_builder_copy(item, decision["topic_key"], source)
         if self._collect_single_signal_issues(repaired):
             repaired = self._fallback_builder_copy(item, decision["topic_key"], source)
-        return self._make_builder_hot_candidate(
+        return with_degraded_fields(
+            self._make_builder_hot_candidate(
             content_id=item.content_id,
             source=source,
             url=item.url,
@@ -726,6 +755,10 @@ class DailyCandidateBuilder:
                 excerpt=repaired["excerpt"],
                 core_claim=repaired["core_claim"],
             ),
+            ),
+            degraded_reason="builder_copy_failed",
+            degraded_stage="builder_copy",
+            fallback_mode="copy_from_item_excerpt",
         )
 
     def _fallback_builder_copy(

@@ -268,6 +268,8 @@ class Pipeline:
             and str(zara_x_status.get("status", "")).strip() in {"failed", "timed_out"}
         ):
             themes_data["degraded_reason"] = "builder_source_fetch_failed"
+            themes_data["degraded_stage"] = "builder_decision"
+            themes_data["fallback_mode"] = "empty_themes"
             themes_data["degraded_source"] = "zara_x"
         exclude_ids: set[str] = set()
         for theme in themes_data.get("themes", []):
@@ -762,6 +764,8 @@ class Pipeline:
             and str(zara_x_status.get("status", "")).strip() in {"failed", "timed_out"}
         ):
             themes_data["degraded_reason"] = "builder_source_fetch_failed"
+            themes_data["degraded_stage"] = "builder_decision"
+            themes_data["fallback_mode"] = "empty_themes"
             themes_data["degraded_source"] = "zara_x"
         exclude_ids: set[str] = set()
         for theme in themes_data.get("themes", []):

@@ -15,6 +15,23 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _normalize_degraded_fields(data: dict[str, Any]) -> dict[str, str]:
+    return {
+        "degraded_reason": _text(data.get("degraded_reason")),
+        "degraded_stage": _text(data.get("degraded_stage")),
+        "fallback_mode": _text(data.get("fallback_mode")),
+    }
+
+
+def with_degraded_fields(payload: dict[str, Any], **fields: str) -> dict[str, Any]:
+    result = dict(payload)
+    for key in ("degraded_reason", "degraded_stage", "fallback_mode"):
+        value = _text(fields.get(key))
+        if value:
+            result[key] = value
+    return result
+
+
 def normalize_builder_hot_candidate(candidate: dict[str, Any] | None) -> dict[str, Any]:
     data = _as_dict(candidate)
     decision = _as_dict(data.get("decision"))
@@ -34,6 +51,7 @@ def normalize_builder_hot_candidate(candidate: dict[str, Any] | None) -> dict[st
             "excerpt": _text(copy.get("excerpt") or data.get("excerpt")),
             "spotlight_text": _text(copy.get("spotlight_text") or data.get("spotlight_text")),
         },
+        **_normalize_degraded_fields(data),
     }
     if not normalized["decision"]["topic_key"]:
         normalized["decision"]["topic_key"] = normalized["copy"]["topic_label"]
@@ -67,11 +85,7 @@ def normalize_theme(theme: dict[str, Any] | None, fallback_dispersion: str = "di
         for content_id in _as_list(decision.get("member_content_ids") or data.get("related_content_ids"))
         if _text(content_id)
     ]
-    representative_urls = [
-        _text(url)
-        for url in _as_list(decision.get("representative_urls"))
-        if _text(url)
-    ]
+    representative_urls = [_text(url) for url in _as_list(decision.get("representative_urls")) if _text(url)]
     if not representative_urls:
         representative_urls = [item["url"] for item in evidence if item["url"]]
     return {
@@ -87,6 +101,7 @@ def normalize_theme(theme: dict[str, Any] | None, fallback_dispersion: str = "di
             "theme_summary": _text(copy.get("theme_summary") or data.get("summary")),
             "evidence": evidence,
         },
+        **_normalize_degraded_fields(data),
     }
 
 
@@ -114,6 +129,7 @@ def normalize_selection(selection: dict[str, Any] | None) -> dict[str, Any]:
         "copy": {
             "value_pitch": _text(copy.get("value_pitch") or data.get("value_pitch")),
         },
+        **_normalize_degraded_fields(data),
     }
 
 
@@ -136,6 +152,7 @@ def normalize_daily_candidates_payload(payload: dict[str, Any] | None) -> dict[s
         "editorial_candidates_filtered": _as_list(data.get("editorial_candidates_filtered")),
         "editorial_top10": _as_list(data.get("editorial_top10") or data.get("editorial_candidates")),
         "editorial_candidates": _as_list(data.get("editorial_candidates") or data.get("editorial_top10")),
+        **_normalize_degraded_fields(data),
     }
 
 
@@ -150,6 +167,8 @@ def normalize_daily_themes_payload(payload: dict[str, Any] | None) -> dict[str, 
         "supplementary_spotlight_posts": _as_list(data.get("supplementary_spotlight_posts")),
         "degraded_reason": _text(data.get("degraded_reason")),
         "degraded_source": _text(data.get("degraded_source")),
+        "degraded_stage": _text(data.get("degraded_stage")),
+        "fallback_mode": _text(data.get("fallback_mode")),
     }
 
 
@@ -158,4 +177,5 @@ def normalize_daily_selections_payload(payload: dict[str, Any] | None) -> dict[s
     return {
         "selections": [normalize_selection(selection) for selection in _as_list(data.get("selections"))],
         "selection_diversity": _text(data.get("selection_diversity")),
+        **_normalize_degraded_fields(data),
     }

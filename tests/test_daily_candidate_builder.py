@@ -210,6 +210,9 @@ class DailyCandidateBuilderTest(unittest.TestCase):
         candidate = payload["builder_hot_candidates"][0]
         self.assertEqual(builder_candidate_decision(candidate)["content_id"], "zara_x_1")
         self.assertTrue(builder_candidate_copy(candidate)["core_claim"])
+        self.assertEqual(candidate["degraded_stage"], "builder_copy")
+        self.assertEqual(candidate["fallback_mode"], "copy_from_item_excerpt")
+        self.assertEqual(payload["degraded_stage"], "builder_copy")
 
 
 if __name__ == "__main__":

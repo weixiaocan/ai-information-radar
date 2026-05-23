@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from src.models.content_item import ContentItem
-from src.utils.daily_state import normalize_selection
+from src.utils.daily_state import normalize_selection, with_degraded_fields
 from src.utils.llm_client import DeepSeekClient
 from src.utils.source_labels import get_original_source_name
 
@@ -24,8 +24,28 @@ class DailyCurator:
             if not isinstance(decision_payload, dict):
                 decision_payload = self.client.daily_selections(str(self.prompt_path), candidate_items, exclude_ids)
         except Exception:
-            return {"selections": [], "selection_diversity": ""}
-        return self._normalize(decision_payload, candidate_items, exclude_ids)
+            return with_degraded_fields(
+                {"selections": [], "selection_diversity": ""},
+                degraded_reason="selection_decision_failed",
+                degraded_stage="selection_decision",
+                fallback_mode="empty_selection",
+            )
+        payload = self._normalize(decision_payload, candidate_items, exclude_ids)
+        if candidate_items and not payload["selections"]:
+            return with_degraded_fields(
+                payload,
+                degraded_reason="selection_decision_failed",
+                degraded_stage="selection_decision",
+                fallback_mode="empty_selection",
+            )
+        if any(selection.get("degraded_stage") for selection in payload["selections"]):
+            return with_degraded_fields(
+                payload,
+                degraded_reason="selection_copy_failed",
+                degraded_stage="selection_copy",
+                fallback_mode="value_pitch_from_summary",
+            )
+        return payload
 
     def _normalize(
         self,
@@ -48,26 +68,34 @@ class DailyCurator:
             if content_id in exclude_ids or content_id in seen_ids:
                 continue
             value_pitch = self._normalize_value_pitch(copy_by_index.get(candidate_index, {}).get("value_pitch"))
+            used_copy_fallback = False
             if not value_pitch:
                 value_pitch = self._fallback_value_pitch(matched_item)
+                used_copy_fallback = True
             seen_ids.add(content_id)
-            selections.append(
-                normalize_selection(
-                    {
-                        "decision": {
-                            "content_id": content_id,
-                            "selected": True,
-                            "type": "youtube" if matched_item.source_type == "youtube" else "article",
-                            "channel_or_source": get_original_source_name(matched_item),
-                            "title": matched_item.title,
-                            "url": matched_item.url,
-                        },
-                        "copy": {
-                            "value_pitch": value_pitch,
-                        },
-                    }
-                )
+            selection = normalize_selection(
+                {
+                    "decision": {
+                        "content_id": content_id,
+                        "selected": True,
+                        "type": "youtube" if matched_item.source_type == "youtube" else "article",
+                        "channel_or_source": get_original_source_name(matched_item),
+                        "title": matched_item.title,
+                        "url": matched_item.url,
+                    },
+                    "copy": {
+                        "value_pitch": value_pitch,
+                    },
+                }
             )
+            if used_copy_fallback:
+                selection = with_degraded_fields(
+                    selection,
+                    degraded_reason="selection_copy_failed",
+                    degraded_stage="selection_copy",
+                    fallback_mode="value_pitch_from_summary",
+                )
+            selections.append(selection)
         return {
             "selections": selections,
             "selection_diversity": self._normalize_value_pitch(copy_payload.get("selection_diversity")),

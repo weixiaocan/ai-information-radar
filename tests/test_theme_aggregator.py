@@ -202,6 +202,9 @@ class ThemeAggregatorValidationTest(unittest.TestCase):
         self.assertEqual(payload["themes"][0]["decision"]["member_content_ids"], ["zara_x_1", "zara_x_2", "zara_x_3"])
         self.assertTrue(payload["themes"][0]["copy"]["theme_title"])
         self.assertTrue(payload["themes"][0]["copy"]["evidence"])
+        self.assertEqual(payload["themes"][0]["degraded_stage"], "theme_copy")
+        self.assertEqual(payload["themes"][0]["fallback_mode"], "copy_from_member_signals")
+        self.assertEqual(payload["degraded_stage"], "theme_copy")
 
 
 if __name__ == "__main__":

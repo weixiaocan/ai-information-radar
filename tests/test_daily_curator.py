@@ -39,6 +39,8 @@ class DailyCuratorTest(unittest.TestCase):
 
         self.assertEqual(selection_decision(payload["selections"][0])["content_id"], "rss_1")
         self.assertTrue(selection_copy(payload["selections"][0])["value_pitch"])
+        self.assertEqual(payload["selections"][0]["degraded_stage"], "selection_copy")
+        self.assertEqual(payload["degraded_stage"], "selection_copy")
 
 
 if __name__ == "__main__":

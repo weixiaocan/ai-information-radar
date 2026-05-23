@@ -120,6 +120,68 @@ class DailyStateCompatibilityTest(unittest.TestCase):
         self.assertIn("Agent tooling", payload_text)
         self.assertIn("Useful overview", payload_text)
 
+    def test_state_manager_preserves_degraded_metadata(self) -> None:
+        temp_dir = Path("state") / "_test_daily_state_degraded"
+        manager = StateManager(temp_dir)
+        try:
+            manager.save_daily_candidates(
+                "2026-05-02",
+                {
+                    "builder_hot_candidates": [
+                        {
+                            "decision": {"content_id": "zara_x_1", "url": "https://x.com/1", "source": "Aaron Levie"},
+                            "copy": {"topic_label": "Agents", "core_claim": "Claim", "excerpt": "Claim", "spotlight_text": "Claim"},
+                            "degraded_reason": "builder_copy_failed",
+                            "degraded_stage": "builder_copy",
+                            "fallback_mode": "copy_from_item_excerpt",
+                        }
+                    ],
+                    "degraded_reason": "builder_copy_failed",
+                    "degraded_stage": "builder_copy",
+                    "fallback_mode": "per_item_copy_fallback",
+                },
+            )
+            manager.save_daily_themes(
+                "2026-05-02",
+                {
+                    "themes": [],
+                    "discussion_dispersion": "dispersed",
+                    "degraded_reason": "theme_membership_failed",
+                    "degraded_stage": "theme_decision",
+                    "fallback_mode": "spotlight_only",
+                },
+            )
+            manager.save_daily_selections(
+                "2026-05-02",
+                {
+                    "selections": [
+                        {
+                            "decision": {"content_id": "rss_1", "selected": True, "type": "article", "channel_or_source": "simon_willison", "title": "A story", "url": "https://example.com/story"},
+                            "copy": {"value_pitch": "Useful overview."},
+                            "degraded_reason": "selection_copy_failed",
+                            "degraded_stage": "selection_copy",
+                            "fallback_mode": "value_pitch_from_summary",
+                        }
+                    ],
+                    "degraded_reason": "selection_copy_failed",
+                    "degraded_stage": "selection_copy",
+                    "fallback_mode": "value_pitch_from_summary",
+                },
+            )
+
+            candidates = manager.load_daily_candidates("2026-05-02")
+            themes = manager.load_daily_themes("2026-05-02")
+            selections = manager.load_daily_selections("2026-05-02")
+
+            self.assertEqual(candidates["degraded_stage"], "builder_copy")
+            self.assertEqual(candidates["builder_hot_candidates"][0]["fallback_mode"], "copy_from_item_excerpt")
+            self.assertEqual(themes["degraded_stage"], "theme_decision")
+            self.assertEqual(themes["fallback_mode"], "spotlight_only")
+            self.assertEqual(selections["degraded_stage"], "selection_copy")
+            self.assertEqual(selections["selections"][0]["fallback_mode"], "value_pitch_from_summary")
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
 
 if __name__ == "__main__":
     unittest.main()
