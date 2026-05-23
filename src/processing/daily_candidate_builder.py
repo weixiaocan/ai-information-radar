@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from src.models.content_item import ContentItem
+from src.utils.daily_state import builder_candidate_decision, normalize_builder_hot_candidate
 from src.utils.llm_client import DeepSeekClient
 from src.utils.source_labels import get_original_source_name
 
@@ -34,14 +35,14 @@ class DailyCandidateBuilder:
             "editorial_candidates": editorial_top10,
         }
 
-    def _build_builder_hot_candidates(self, builder_items: list[ContentItem]) -> list[dict[str, str]]:
+    def _build_builder_hot_candidates(self, builder_items: list[ContentItem]) -> list[dict[str, Any]]:
         if not builder_items:
             return []
 
         payload = self._fetch_builder_signal_payload(builder_items)
         items_by_id = {item.content_id: item for item in builder_items}
         items_by_url = {item.url: item for item in builder_items if item.url}
-        candidates: list[dict[str, str]] = []
+        candidates: list[dict[str, Any]] = []
         seen_urls: set[str] = set()
 
         for signal in payload.get("signals", []):
@@ -82,26 +83,26 @@ class DailyCandidateBuilder:
             seen_urls.add(url)
             source = self._resolve_builder_source(source, item, items_by_url.get(url))
             candidates.append(
-                {
-                    "content_id": content_id,
-                    "source": source,
-                    "url": url,
-                    "topic_label": topic_label,
-                    "core_claim": core_claim,
-                    "angle": angle,
-                    "excerpt": excerpt,
-                    "spotlight_text": self._resolve_spotlight_text(
+                self._make_builder_hot_candidate(
+                    content_id=content_id,
+                    source=source,
+                    url=url,
+                    topic_label=topic_label,
+                    core_claim=core_claim,
+                    angle=angle,
+                    excerpt=excerpt,
+                    spotlight_text=self._resolve_spotlight_text(
                         source=source,
                         spotlight_text=spotlight_text,
                         excerpt=excerpt,
                         core_claim=core_claim,
                     ),
-                }
+                )
             )
 
         if len(candidates) < min(3, self.builder_candidate_limit):
             candidates = self._backfill_builder_candidates(builder_items, candidates)
-        return candidates[: self.builder_candidate_limit]
+        return [normalize_builder_hot_candidate(candidate) for candidate in candidates[: self.builder_candidate_limit]]
 
     def _coerce_signal_payload(self, signal: dict[str, Any] | None) -> dict[str, str]:
         data = signal or {}
@@ -133,10 +134,10 @@ class DailyCandidateBuilder:
     def _backfill_builder_candidates(
         self,
         builder_items: list[ContentItem],
-        candidates: list[dict[str, str]],
-    ) -> list[dict[str, str]]:
-        existing_ids = {candidate["content_id"] for candidate in candidates}
-        existing_urls = {candidate["url"] for candidate in candidates}
+        candidates: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        existing_ids = {builder_candidate_decision(candidate).get("content_id", "") for candidate in candidates}
+        existing_urls = {builder_candidate_decision(candidate).get("url", "") for candidate in candidates}
 
         for item in builder_items:
             if len(candidates) >= self.builder_candidate_limit:
@@ -184,6 +185,37 @@ class DailyCandidateBuilder:
             existing_urls.add(item.url)
 
         return candidates
+
+    def _make_builder_hot_candidate(
+        self,
+        *,
+        content_id: str,
+        source: str,
+        url: str,
+        topic_label: str,
+        core_claim: str,
+        angle: str,
+        excerpt: str,
+        spotlight_text: str,
+    ) -> dict[str, Any]:
+        return normalize_builder_hot_candidate(
+            {
+                "decision": {
+                    "content_id": content_id,
+                    "url": url,
+                    "source": source,
+                    "topic_key": topic_label,
+                    "entered_hot_pool": True,
+                },
+                "copy": {
+                    "topic_label": topic_label,
+                    "core_claim": core_claim,
+                    "angle": angle,
+                    "excerpt": excerpt,
+                    "spotlight_text": spotlight_text,
+                },
+            }
+        )
 
     def _build_editorial_candidates(self, editorial_items: list[ContentItem]) -> list[dict[str, str]]:
         candidates: list[dict[str, str]] = []
@@ -662,7 +694,7 @@ class DailyCandidateBuilder:
             repaired["source"] = item.author or item.source_name
         return repaired
 
-    def _synthesize_signal_from_item(self, item: ContentItem) -> dict[str, str] | None:
+    def _synthesize_signal_from_item(self, item: ContentItem) -> dict[str, Any] | None:
         issues = [
             "rewrite this post into concise natural Chinese.",
             "`topic_label`, `core_claim`, `excerpt`, and `spotlight_text` must all be complete Chinese sentences or phrases.",
@@ -674,21 +706,21 @@ class DailyCandidateBuilder:
         if self._collect_single_signal_issues(repaired):
             return None
         source = self._resolve_builder_source(repaired.get("source", ""), item, item)
-        return {
-            "content_id": item.content_id,
-            "source": source,
-            "url": item.url,
-            "topic_label": repaired["topic_label"],
-            "core_claim": repaired["core_claim"],
-            "angle": repaired["angle"],
-            "excerpt": repaired["excerpt"],
-            "spotlight_text": self._resolve_spotlight_text(
+        return self._make_builder_hot_candidate(
+            content_id=item.content_id,
+            source=source,
+            url=item.url,
+            topic_label=repaired["topic_label"],
+            core_claim=repaired["core_claim"],
+            angle=repaired["angle"],
+            excerpt=repaired["excerpt"],
+            spotlight_text=self._resolve_spotlight_text(
                 source=source,
                 spotlight_text=repaired["spotlight_text"],
                 excerpt=repaired["excerpt"],
                 core_claim=repaired["core_claim"],
             ),
-        }
+        )
 
     def _looks_mostly_english(self, text: str) -> bool:
         ascii_letters = len(re.findall(r"[A-Za-z]", text))

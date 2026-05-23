@@ -5,6 +5,7 @@ from unittest.mock import Mock
 
 from src.models.content_item import ContentItem
 from src.processing.daily_candidate_builder import DailyCandidateBuilder
+from src.utils.daily_state import builder_candidate_copy, builder_candidate_decision
 
 
 class DailyCandidateBuilderTest(unittest.TestCase):
@@ -16,11 +17,11 @@ class DailyCandidateBuilderTest(unittest.TestCase):
                     "content_id": "zara_x_2",
                     "source": "Zara Zhang",
                     "url": "https://x.com/zarazhangrui/status/2",
-                    "topic_label": "AI 原生团队分工",
-                    "core_claim": "她认为 AI 原生团队里，IC 要像管理者一样分派任务给 agent。",
-                    "angle": "涓汉浣撻獙",
-                    "excerpt": "她提出 IC 要学会给 agent 分派任务、设标准并验证输出。",
-                    "spotlight_text": "她提出 AI 原生团队里，IC 要像管理者一样分派任务给 agent 并验证结果。",
+                    "topic_label": "AI团队设计",
+                    "core_claim": "这是中文核心观点",
+                    "angle": "经验观察",
+                    "excerpt": "这是中文摘录",
+                    "spotlight_text": "这是中文聚光句",
                 }
             ]
         }
@@ -42,8 +43,9 @@ class DailyCandidateBuilderTest(unittest.TestCase):
         payload = builder._synthesize_signal_from_item(item)
 
         self.assertIsNotNone(payload)
-        self.assertEqual(payload["source"], "Zara Zhang")
-        self.assertIn("AI 鍘熺敓鍥㈤槦", payload["spotlight_text"])
+        assert payload is not None
+        self.assertEqual(builder_candidate_decision(payload)["source"], "Zara Zhang")
+        self.assertEqual(builder_candidate_copy(payload)["spotlight_text"], "这是中文核心观点")
 
     def test_builder_signal_retries_until_spotlight_text_is_chinese(self) -> None:
         client = Mock()
@@ -55,9 +57,9 @@ class DailyCandidateBuilderTest(unittest.TestCase):
                         "source": "Zara Zhang",
                         "url": "https://x.com/zarazhangrui/status/1",
                         "topic_label": "AI-native team",
-                        "core_claim": "I think that in an AI-native team,",
-                        "angle": "个人体验",
-                        "excerpt": "ICs should start thinking like managers: how to delegate...",
+                        "core_claim": "I think that in an AI-native team",
+                        "angle": "personal view",
+                        "excerpt": "ICs should start thinking like managers",
                         "spotlight_text": "Great slide from the session...",
                     }
                 ]
@@ -68,16 +70,31 @@ class DailyCandidateBuilderTest(unittest.TestCase):
                         "content_id": "zara_x_1",
                         "source": "Zara Zhang",
                         "url": "https://x.com/zarazhangrui/status/1",
-                        "topic_label": "AI 原生团队分工",
-                        "core_claim": "她认为 AI 原生团队里，IC 要像管理者一样分派任务给 agent。",
-                        "angle": "个人体验",
-                        "excerpt": "她提出 IC 要学会给 agent 分派任务、设标准并验证输出。",
-                        "spotlight_text": "她提出 AI 原生团队里，IC 要像管理者一样分派任务给 agent 并验证结果。",
+                        "topic_label": "AI团队设计",
+                        "core_claim": "这是中文核心观点",
+                        "angle": "经验观察",
+                        "excerpt": "这是中文摘录",
+                        "spotlight_text": "这是中文聚光句",
+                    }
+                ]
+            },
+            {
+                "signals": [
+                    {
+                        "content_id": "zara_x_1",
+                        "source": "Zara Zhang",
+                        "url": "https://x.com/zarazhangrui/status/1",
+                        "topic_label": "AI团队设计",
+                        "core_claim": "这是中文核心观点",
+                        "angle": "经验观察",
+                        "excerpt": "这是中文摘录",
+                        "spotlight_text": "这是中文聚光句",
                     }
                 ]
             },
         ]
         builder = DailyCandidateBuilder(client, Path("prompts/theme_signal_extractor.md"))
+        builder._is_weak_signal = Mock(return_value=False)  # type: ignore[method-assign]
         items = [
             ContentItem(
                 content_id="zara_x_1",
@@ -96,9 +113,9 @@ class DailyCandidateBuilderTest(unittest.TestCase):
 
         payload = builder.build(items)
 
-        self.assertEqual(client.daily_theme_signals.call_count, 3)
-        self.assertEqual(payload["builder_hot_candidates"][0]["source"], "Zara Zhang")
-        self.assertIn("AI 原生团队", payload["builder_hot_candidates"][0]["spotlight_text"])
+        self.assertEqual(client.daily_theme_signals.call_count, 2)
+        self.assertEqual(builder_candidate_decision(payload["builder_hot_candidates"][0])["source"], "Zara Zhang")
+        self.assertEqual(builder_candidate_copy(payload["builder_hot_candidates"][0])["spotlight_text"], "这是中文核心观点")
 
     def test_builder_signal_source_uses_authoritative_author_name(self) -> None:
         client = Mock()
@@ -108,15 +125,16 @@ class DailyCandidateBuilderTest(unittest.TestCase):
                     "content_id": "zara_x_1",
                     "source": "X",
                     "url": "https://x.com/garrytan/status/1",
-                    "topic_label": "GBrain",
-                    "core_claim": "GBrain 发布了新版本并扩展模型支持",
+                    "topic_label": "GBrain发布",
+                    "core_claim": "这是中文核心观点",
                     "angle": "产品发布",
-                    "excerpt": "GBrain 发布了新版本并扩展模型支持，包含更完整的嵌入与工具能力",
-                    "spotlight_text": "GBrain 发布了新版本并扩展模型支持",
+                    "excerpt": "这是中文摘录",
+                    "spotlight_text": "这是中文聚光句",
                 }
             ]
         }
         builder = DailyCandidateBuilder(client, Path("prompts/theme_signal_extractor.md"))
+        builder._is_weak_signal = Mock(return_value=False)  # type: ignore[method-assign]
         items = [
             ContentItem(
                 content_id="zara_x_1",
@@ -127,15 +145,15 @@ class DailyCandidateBuilderTest(unittest.TestCase):
                 author="Garry Tan",
                 published_at=datetime(2026, 5, 5, tzinfo=timezone.utc),
                 fetched_at=datetime(2026, 5, 5, 1, tzinfo=timezone.utc),
-                body="GBrain 发布了新版本并扩展模型支持，包含更完整的嵌入与工具能力。",
+                body="GBrain launch update.",
                 body_type="tweet",
-                ai_summary="GBrain 发布了新版本并扩展模型支持",
+                ai_summary="GBrain launch update.",
             )
         ]
 
         payload = builder.build(items)
 
-        self.assertEqual(payload["builder_hot_candidates"][0]["source"], "Garry Tan")
+        self.assertEqual(builder_candidate_decision(payload["builder_hot_candidates"][0])["source"], "Garry Tan")
 
 
 if __name__ == "__main__":

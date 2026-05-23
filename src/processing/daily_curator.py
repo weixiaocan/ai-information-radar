@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from src.models.content_item import ContentItem
+from src.utils.daily_state import normalize_selection
 from src.utils.llm_client import DeepSeekClient
 from src.utils.source_labels import get_original_source_name
 
@@ -51,14 +52,21 @@ class DailyCurator:
                 continue
             seen_ids.add(content_id)
             selections.append(
-                {
-                    "content_id": content_id,
-                    "type": "youtube" if matched_item.source_type == "youtube" else "article",
-                    "channel_or_source": get_original_source_name(matched_item),
-                    "title": matched_item.title,
-                    "url": matched_item.url,
-                    "value_pitch": value_pitch,
-                }
+                normalize_selection(
+                    {
+                        "decision": {
+                            "content_id": content_id,
+                            "selected": True,
+                            "type": "youtube" if matched_item.source_type == "youtube" else "article",
+                            "channel_or_source": get_original_source_name(matched_item),
+                            "title": matched_item.title,
+                            "url": matched_item.url,
+                        },
+                        "copy": {
+                            "value_pitch": value_pitch,
+                        },
+                    }
+                )
             )
         return {
             "selections": selections,

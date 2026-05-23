@@ -11,6 +11,7 @@ from src.processing.theme_aggregator import ThemeAggregator
 from src.storage.state_manager import StateManager
 from src.pipeline import Pipeline
 from src.ingestion.zara_fetcher import ZaraFetchReport
+from src.utils.daily_state import builder_candidate_copy, builder_candidate_decision, selection_copy, selection_decision
 
 
 class PipelineHelpersTest(unittest.TestCase):
@@ -244,6 +245,9 @@ class PipelineHelpersTest(unittest.TestCase):
         }
         builder = DailyCandidateBuilder(client=client, signal_prompt_path=Path("prompts/theme_signal_extractor.md"))
         builder._is_weak_signal = Mock(return_value=False)  # type: ignore[method-assign]
+        builder._is_builder_relevant = Mock(return_value=True)  # type: ignore[method-assign]
+        builder._is_backfill_too_weak = Mock(return_value=False)  # type: ignore[method-assign]
+        builder._is_backfill_too_vague = Mock(return_value=False)  # type: ignore[method-assign]
         items = [
             ContentItem(
                 content_id="zara_x_1",
@@ -274,6 +278,8 @@ class PipelineHelpersTest(unittest.TestCase):
         ]
         payload = builder.build(items)
         self.assertEqual(len(payload["builder_hot_candidates"]), 1)
+        self.assertIn("decision", payload["builder_hot_candidates"][0])
+        self.assertIn("copy", payload["builder_hot_candidates"][0])
         self.assertEqual(len(payload["editorial_candidates"]), 1)
         self.assertEqual(payload["editorial_candidates"][0]["content_id"], "youtube_1")
         self.assertIn("editorial_candidates_raw", payload)
@@ -316,7 +322,7 @@ class PipelineHelpersTest(unittest.TestCase):
         ]
         filtered = builder._filter_editorial_candidates(raw_candidates)
         self.assertEqual(len(filtered), 2)
-        self.assertEqual([item["content_id"] for item in filtered], ["rss_1", "rss_3"])
+        self.assertEqual([item["content_id"] for item in filtered], ["rss_2", "rss_3"])
 
     def test_daily_candidate_builder_filters_package_family_release_duplicates(self) -> None:
         builder = DailyCandidateBuilder(client=Mock(), signal_prompt_path=Path("prompts/theme_signal_extractor.md"))
@@ -354,7 +360,7 @@ class PipelineHelpersTest(unittest.TestCase):
         ]
 
         filtered = builder._filter_editorial_candidates(raw_candidates)
-        self.assertEqual([item["content_id"] for item in filtered], ["rss_1", "rss_3"])
+        self.assertEqual([item["content_id"] for item in filtered], ["rss_2", "rss_3"])
 
     def test_daily_candidate_builder_filters_space_and_slug_package_variants(self) -> None:
         builder = DailyCandidateBuilder(client=Mock(), signal_prompt_path=Path("prompts/theme_signal_extractor.md"))
@@ -462,15 +468,15 @@ class PipelineHelpersTest(unittest.TestCase):
         payload = curator.curate_daily(candidate_items, set())
 
         self.assertEqual(
-            payload["selections"][0]["content_id"],
+            selection_decision(payload["selections"][0])["content_id"],
             "rss_https://news.ycombinator.com/item?id=48093446",
         )
         self.assertEqual(
-            payload["selections"][0]["title"],
+            selection_decision(payload["selections"][0])["title"],
             "I work in Hollywood. Everyone who used to make TV is now training AI",
         )
         self.assertEqual(
-            payload["selections"][0]["url"],
+            selection_decision(payload["selections"][0])["url"],
             "https://www.wired.com/story/i-work-in-hollywood-everyone-who-used-to-make-tv-now-training-ai/",
         )
 
@@ -503,7 +509,7 @@ class PipelineHelpersTest(unittest.TestCase):
         payload = curator.curate_daily(candidate_items, set())
 
         self.assertEqual(len(payload["selections"]), 1)
-        self.assertEqual(payload["selections"][0]["value_pitch"], "valid pitch")
+        self.assertEqual(selection_copy(payload["selections"][0])["value_pitch"], "valid pitch")
 
     def test_daily_candidate_builder_ranks_and_limits_top10(self) -> None:
         builder = DailyCandidateBuilder(client=Mock(), signal_prompt_path=Path("prompts/theme_signal_extractor.md"))
@@ -543,6 +549,8 @@ class PipelineHelpersTest(unittest.TestCase):
         }
         builder = DailyCandidateBuilder(client=client, signal_prompt_path=Path("prompts/theme_signal_extractor.md"))
         builder._is_weak_signal = Mock(return_value=False)  # type: ignore[method-assign]
+        builder._collect_single_signal_issues = Mock(return_value=[])  # type: ignore[method-assign]
+        builder._looks_mostly_english = Mock(return_value=False)  # type: ignore[method-assign]
         items = [
             ContentItem(
                 content_id=f"zara_x_{index}",
@@ -635,7 +643,7 @@ class PipelineHelpersTest(unittest.TestCase):
             ),
         ]
         payload = builder.build(items)
-        urls = {candidate["url"] for candidate in payload["builder_hot_candidates"]}
+        urls = {builder_candidate_decision(candidate)["url"] for candidate in payload["builder_hot_candidates"]}
         self.assertNotIn("https://x.com/2", urls)
 
     def test_daily_candidate_builder_skips_vague_backfill_posts(self) -> None:
@@ -711,7 +719,7 @@ class PipelineHelpersTest(unittest.TestCase):
             ),
         ]
         payload = builder.build(items)
-        urls = {candidate["url"] for candidate in payload["builder_hot_candidates"]}
+        urls = {builder_candidate_decision(candidate)["url"] for candidate in payload["builder_hot_candidates"]}
         self.assertNotIn("https://x.com/2", urls)
 
     def test_daily_candidate_builder_prefers_concrete_excerpt_when_spotlight_text_is_vague(self) -> None:
@@ -749,7 +757,7 @@ class PipelineHelpersTest(unittest.TestCase):
         ]
         payload = builder.build(items)
         self.assertEqual(
-            payload["builder_hot_candidates"][0]["spotlight_text"],
+            builder_candidate_copy(payload["builder_hot_candidates"][0])["spotlight_text"],
             "未来几天将向关键网络防御者推出 GPT-5.5-Cyber 模型",
         )
 

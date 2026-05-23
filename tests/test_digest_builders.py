@@ -402,7 +402,7 @@ class DailyDigestBuilderTest(unittest.TestCase):
             for element in payload["card"]["elements"]
             if element.get("tag") == "div"
         ]
-        self.assertTrue(any("should be hidden" in text for text in card_texts))
+        self.assertFalse(any("should be hidden" in text for text in card_texts))
         self.assertTrue(any("should remain" in text for text in card_texts))
 
     def test_digest_builder_enforces_unique_content_ids_across_sections(self) -> None:

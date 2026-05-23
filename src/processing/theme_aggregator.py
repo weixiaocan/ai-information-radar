@@ -4,10 +4,16 @@ import logging
 import re
 from collections import Counter
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
 from src.models.content_item import ContentItem
+from src.utils.daily_state import (
+    builder_candidate_copy,
+    builder_candidate_decision,
+    normalize_theme,
+)
 from src.utils.llm_client import DeepSeekClient
 from src.utils.source_labels import get_original_source_name
 
@@ -22,7 +28,7 @@ class ThemeAggregator:
     def aggregate_themes(
         self,
         today_items: list[ContentItem],
-        builder_hot_candidates: list[dict[str, str]] | None = None,
+        builder_hot_candidates: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         if not today_items:
             return {"themes": [], "discussion_dispersion": "dispersed", "spotlight_posts": []}
@@ -40,7 +46,7 @@ class ThemeAggregator:
             payload = self.client.daily_themes(
                 str(self.prompt_path),
                 today_items,
-                theme_signals=signals,
+                theme_signals=[self._flatten_builder_signal(signal) for signal in signals],
             )
             max_attempts = 3
             for attempt in range(1, max_attempts + 1):
@@ -54,7 +60,7 @@ class ThemeAggregator:
                 payload = self.client.daily_themes(
                     str(self.prompt_path),
                     today_items,
-                    theme_signals=signals,
+                    theme_signals=[self._flatten_builder_signal(signal) for signal in signals],
                     feedback=issues,
                 )
         except Exception:
@@ -153,12 +159,22 @@ class ThemeAggregator:
                     }
                 )
             themes.append(
-                {
-                    "theme": str(theme.get("theme", "Unnamed theme")).strip() or "Unnamed theme",
-                    "summary": str(theme.get("summary", "")).strip(),
-                    "evidence": evidence_payloads,
-                    "related_content_ids": related_content_ids,
-                }
+                normalize_theme(
+                    {
+                        "decision": {
+                            "theme_id": str(theme.get("theme_id", "")).strip(),
+                            "member_content_ids": related_content_ids,
+                            "representative_urls": [item["url"] for item in evidence_payloads if item.get("url")],
+                            "discussion_dispersion": str(data.get("discussion_dispersion", "dispersed")).strip()
+                            or "dispersed",
+                        },
+                        "copy": {
+                            "theme_title": str(theme.get("theme", "Unnamed theme")).strip() or "Unnamed theme",
+                            "theme_summary": str(theme.get("summary", "")).strip(),
+                            "evidence": evidence_payloads,
+                        },
+                    }
+                )
             )
         dispersion = str(data.get("discussion_dispersion", "dispersed")).strip() or "dispersed"
         if not themes:
@@ -172,30 +188,50 @@ class ThemeAggregator:
 
     def _empty_result(
         self,
-        signals: list[dict[str, str]] | None = None,
+        signals: list[dict[str, Any]] | None = None,
         source_by_url: dict[str, str] | None = None,
         source_by_content_id: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         ranked_posts = [
             {
                 "source": self._resolve_source_name(
-                    str(signal.get("source", "")).strip(),
-                    str(signal.get("url", "")).strip(),
-                    [str(signal.get("content_id", "")).strip()],
+                    builder_candidate_decision(signal).get("source", ""),
+                    builder_candidate_decision(signal).get("url", ""),
+                    [builder_candidate_decision(signal).get("content_id", "")],
                     source_by_url or {},
                     source_by_content_id or {},
                 ),
-                "text": signal.get("spotlight_text") or signal["core_claim"],
-                "url": signal["url"],
+                "text": builder_candidate_copy(signal).get("spotlight_text")
+                or builder_candidate_copy(signal).get("core_claim", ""),
+                "url": builder_candidate_decision(signal).get("url", ""),
             }
             for signal in (signals or [])[:10]
-            if signal.get("source") and signal.get("url") and (signal.get("spotlight_text") or signal.get("core_claim"))
+            if builder_candidate_decision(signal).get("source")
+            and builder_candidate_decision(signal).get("url")
+            and (
+                builder_candidate_copy(signal).get("spotlight_text")
+                or builder_candidate_copy(signal).get("core_claim")
+            )
         ]
         return {
             "themes": [],
             "discussion_dispersion": "dispersed",
             "spotlight_posts": ranked_posts[:5],
             "supplementary_spotlight_posts": ranked_posts[5:10],
+        }
+
+    def _flatten_builder_signal(self, signal: dict[str, Any]) -> dict[str, str]:
+        decision = builder_candidate_decision(signal)
+        copy = builder_candidate_copy(signal)
+        return {
+            "content_id": str(decision.get("content_id", "")).strip(),
+            "source": str(decision.get("source", "")).strip(),
+            "url": str(decision.get("url", "")).strip(),
+            "topic_label": str(copy.get("topic_label", "")).strip(),
+            "core_claim": str(copy.get("core_claim", "")).strip(),
+            "angle": str(copy.get("angle", "")).strip(),
+            "excerpt": str(copy.get("excerpt", "")).strip(),
+            "spotlight_text": str(copy.get("spotlight_text", "")).strip(),
         }
 
     def _resolve_source_name(
@@ -233,6 +269,11 @@ class ThemeAggregator:
         if not summary_norm or not excerpt_norm:
             return False
         if summary_norm == excerpt_norm:
+            return True
+        shorter, longer = sorted((summary_norm, excerpt_norm), key=len)
+        if len(shorter) >= 12 and shorter in longer:
+            return True
+        if SequenceMatcher(None, summary_norm, excerpt_norm).ratio() >= 0.6:
             return True
         summary_tokens = set(summary_norm.split())
         excerpt_tokens = set(excerpt_norm.split())

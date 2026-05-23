@@ -20,6 +20,7 @@ from src.processing.tier2_score import Tier2Scorer, score_total
 from src.storage.state_manager import StateManager
 from src.storage.transcript_store import TranscriptStore
 from src.utils.config import Settings, load_yaml
+from src.utils.daily_state import normalize_daily_candidates_payload, theme_decision
 from src.utils.llm_client import DeepSeekClient
 from src.utils.transcript_client import TranscriptClient
 
@@ -78,6 +79,7 @@ class Pipeline:
                 settings.site_repo_path,
                 git_branch=settings.site_git_branch,
                 timeout_seconds=settings.site_publish_timeout_seconds,
+                push_retry_delays_seconds=settings.site_push_retry_delays_seconds,
             )
             if settings.site_publish_enabled and settings.site_repo_path is not None
             else None
@@ -202,7 +204,11 @@ class Pipeline:
         target_date = self._resolve_daily_target_date(items, report_window)
         day = target_date.isoformat() if target_date else "latest"
         daily_items = self._load_items_for_daily_report(target_date, report_window, items)
-        candidates_data = self.state_manager.load_daily_candidates(day) if target_date else {"builder_hot_candidates": [], "editorial_candidates": []}
+        candidates_data = (
+            self.state_manager.load_daily_candidates(day)
+            if target_date
+            else normalize_daily_candidates_payload({"builder_hot_candidates": [], "editorial_candidates": []})
+        )
         themes_data = self.state_manager.load_daily_themes(day) if target_date else {"themes": [], "discussion_dispersion": "dispersed"}
         selections_data = self.state_manager.load_daily_selections(day) if target_date else {"selections": []}
         stats = {"total": len(daily_items)}
@@ -237,6 +243,7 @@ class Pipeline:
         day = target_date.isoformat() if target_date else "latest"
         daily_items = self._load_items_for_daily_report(target_date, report_window, items)
         candidates = self.daily_candidate_builder.build(daily_items)
+        candidates = normalize_daily_candidates_payload(candidates)
         builder_hot_candidates = candidates.get("builder_hot_candidates", [])
         editorial_candidate_ids = {
             str(candidate.get("content_id", "")).strip()
@@ -256,7 +263,7 @@ class Pipeline:
             themes_data["degraded_source"] = "zara_x"
         exclude_ids: set[str] = set()
         for theme in themes_data.get("themes", []):
-            exclude_ids.update(theme.get("related_content_ids", []))
+            exclude_ids.update(theme_decision(theme).get("member_content_ids", []))
         selections_data = self.daily_curator.curate_daily(editorial_items, exclude_ids)
         self.state_manager.save_daily_candidates(day, candidates)
         self.state_manager.save_daily_themes(day, themes_data)
@@ -724,6 +731,7 @@ class Pipeline:
         daily_items: list[ContentItem],
     ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, int]]:
         candidates = self.daily_candidate_builder.build(daily_items)
+        candidates = normalize_daily_candidates_payload(candidates)
         builder_hot_candidates = candidates.get("builder_hot_candidates", [])
         editorial_candidate_ids = {
             str(candidate.get("content_id", "")).strip()
@@ -743,7 +751,7 @@ class Pipeline:
             themes_data["degraded_source"] = "zara_x"
         exclude_ids: set[str] = set()
         for theme in themes_data.get("themes", []):
-            exclude_ids.update(theme.get("related_content_ids", []))
+            exclude_ids.update(theme_decision(theme).get("member_content_ids", []))
         selections_data = self.daily_curator.curate_daily(editorial_items, exclude_ids)
         stats = {"total": len(daily_items)}
         return candidates, themes_data, selections_data, stats

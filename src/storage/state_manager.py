@@ -4,6 +4,11 @@ import json
 from pathlib import Path
 from typing import Any
 
+from src.utils.daily_state import (
+    normalize_daily_candidates_payload,
+    normalize_daily_selections_payload,
+    normalize_daily_themes_payload,
+)
 from src.utils.time_utils import utc_now
 
 
@@ -99,30 +104,39 @@ class StateManager:
 
     def save_daily_themes(self, day: str, payload: dict[str, Any]) -> None:
         path = self.themes_dir / f"{day}.json"
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        path.write_text(
+            json.dumps(normalize_daily_themes_payload(payload), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
     def load_daily_themes(self, day: str) -> dict[str, Any]:
         path = self.themes_dir / f"{day}.json"
         if not path.exists():
-            return {"themes": [], "discussion_dispersion": "dispersed"}
-        return json.loads(path.read_text(encoding="utf-8"))
+            return normalize_daily_themes_payload({"themes": [], "discussion_dispersion": "dispersed"})
+        return normalize_daily_themes_payload(json.loads(path.read_text(encoding="utf-8")))
 
     def save_daily_selections(self, day: str, payload: dict[str, Any]) -> None:
         path = self.selections_dir / f"{day}.json"
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        path.write_text(
+            json.dumps(normalize_daily_selections_payload(payload), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
     def load_daily_selections(self, day: str) -> dict[str, Any]:
         path = self.selections_dir / f"{day}.json"
         if not path.exists():
-            return {"selections": []}
-        return json.loads(path.read_text(encoding="utf-8"))
+            return normalize_daily_selections_payload({"selections": []})
+        return normalize_daily_selections_payload(json.loads(path.read_text(encoding="utf-8")))
 
     def save_daily_candidates(self, day: str, payload: dict[str, Any]) -> None:
         path = self.candidates_dir / f"{day}.json"
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        path.write_text(
+            json.dumps(normalize_daily_candidates_payload(payload), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
     def load_daily_candidates(self, day: str) -> dict[str, Any]:
         path = self.candidates_dir / f"{day}.json"
         if not path.exists():
-            return {"builder_hot_candidates": [], "editorial_candidates": []}
-        return json.loads(path.read_text(encoding="utf-8"))
+            return normalize_daily_candidates_payload({"builder_hot_candidates": [], "editorial_candidates": []})
+        return normalize_daily_candidates_payload(json.loads(path.read_text(encoding="utf-8")))

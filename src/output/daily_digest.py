@@ -3,10 +3,22 @@ from __future__ import annotations
 import logging
 import re
 from datetime import date
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
 from src.utils.config import load_yaml
+from src.utils.daily_state import (
+    builder_candidate_copy,
+    builder_candidate_decision,
+    normalize_daily_candidates_payload,
+    normalize_daily_selections_payload,
+    normalize_daily_themes_payload,
+    selection_copy,
+    selection_decision,
+    theme_copy,
+    theme_decision,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -23,11 +35,16 @@ class DailyDigestBuilder:
         target_date: date | None = None,
         candidates_data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        themes_payload = themes_data or {}
+        themes_payload = normalize_daily_themes_payload(themes_data)
         themes = list(themes_payload.get("themes", []))
         spotlight_posts = list(themes_payload.get("spotlight_posts", []))
-        selections = list((selections_data or {}).get("selections", []))
-        supplementary_items = self._build_supplementary_candidates(themes_payload, selections, candidates_data or {})
+        selections_payload = normalize_daily_selections_payload(selections_data)
+        selections = list(selections_payload.get("selections", []))
+        supplementary_items = self._build_supplementary_candidates(
+            themes_payload,
+            selections,
+            normalize_daily_candidates_payload(candidates_data),
+        )
         selections, supplementary_items = self._enforce_section_invariants(selections, supplementary_items)
         self._warn_on_url_conflicts(selections, supplementary_items)
         stats_payload = stats or {"total": 0}
@@ -35,7 +52,7 @@ class DailyDigestBuilder:
         related_ids = {
             content_id
             for theme in themes
-            for content_id in theme.get("related_content_ids", [])
+            for content_id in theme_decision(theme).get("member_content_ids", [])
             if str(content_id).strip()
         }
 
@@ -44,16 +61,16 @@ class DailyDigestBuilder:
             elements.append({"tag": "div", "text": {"tag": "lark_md", "content": f"**🌡️ 今日热议（{len(themes)} 个主题）**"}})
             for theme in themes:
                 visible_evidence = self._dedupe_theme_evidence_against_summary(
-                    str(theme.get("summary", "")).strip(),
-                    theme.get("evidence", []),
+                    str(theme_copy(theme).get("theme_summary", "")).strip(),
+                    theme_copy(theme).get("evidence", []),
                 )
                 evidence_lines = "\n".join(
                     self._render_evidence_line(evidence)
                     for evidence in visible_evidence[:4]
                     if evidence.get("excerpt")
                 )
-                summary = self._strip_terminal_punctuation(str(theme.get("summary", "")).strip())
-                content = f"**▎{theme.get('theme', '未命名主题')}**\n{summary}"
+                summary = self._strip_terminal_punctuation(str(theme_copy(theme).get("theme_summary", "")).strip())
+                content = f"**▎{theme_copy(theme).get('theme_title', '未命名主题')}**\n{summary}"
                 if evidence_lines:
                     content += f"\n{evidence_lines}"
                 elements.append({"tag": "div", "text": {"tag": "lark_md", "content": content}})
@@ -140,11 +157,16 @@ class DailyDigestBuilder:
         target_date: date | None = None,
         candidates_data: dict[str, Any] | None = None,
     ) -> str:
-        themes_payload = themes_data or {}
+        themes_payload = normalize_daily_themes_payload(themes_data)
         themes = list(themes_payload.get("themes", []))
         spotlight_posts = list(themes_payload.get("spotlight_posts", []))
-        selections = list((selections_data or {}).get("selections", []))
-        supplementary_items = self._build_supplementary_candidates(themes_payload, selections, candidates_data or {})
+        selections_payload = normalize_daily_selections_payload(selections_data)
+        selections = list(selections_payload.get("selections", []))
+        supplementary_items = self._build_supplementary_candidates(
+            themes_payload,
+            selections,
+            normalize_daily_candidates_payload(candidates_data),
+        )
         selections, supplementary_items = self._enforce_section_invariants(selections, supplementary_items)
         self._warn_on_url_conflicts(selections, supplementary_items)
         stats_payload = stats or {"total": 0}
@@ -153,7 +175,7 @@ class DailyDigestBuilder:
         related_ids = {
             content_id
             for theme in themes
-            for content_id in theme.get("related_content_ids", [])
+            for content_id in theme_decision(theme).get("member_content_ids", [])
             if str(content_id).strip()
         }
 
@@ -163,12 +185,12 @@ class DailyDigestBuilder:
         if themes:
             for theme in themes:
                 visible_evidence = self._dedupe_theme_evidence_against_summary(
-                    str(theme.get("summary", "")).strip(),
-                    theme.get("evidence", []),
+                    str(theme_copy(theme).get("theme_summary", "")).strip(),
+                    theme_copy(theme).get("evidence", []),
                 )
-                lines.append(f"### ▎{theme.get('theme', '未命名主题')}")
+                lines.append(f"### ▎{theme_copy(theme).get('theme_title', '未命名主题')}")
                 lines.append("")
-                summary = self._strip_terminal_punctuation(str(theme.get("summary", "")).strip())
+                summary = self._strip_terminal_punctuation(str(theme_copy(theme).get("theme_summary", "")).strip())
                 if summary:
                     lines.append(summary)
                     lines.append("")
@@ -221,21 +243,22 @@ class DailyDigestBuilder:
         selections: list[dict[str, Any]],
         candidates_data: dict[str, Any],
     ) -> list[dict[str, Any]]:
+        candidates_data = normalize_daily_candidates_payload(candidates_data)
         themes = list(themes_payload.get("themes", []))
         spotlight_posts = list(themes_payload.get("spotlight_posts", []))
         supplementary_spotlight_posts = list(themes_payload.get("supplementary_spotlight_posts", []))
         displayed_selection_ids = {
-            str(selection.get("content_id", "")).strip()
+            str(selection_decision(selection).get("content_id", "")).strip()
             for selection in selections
-            if str(selection.get("content_id", "")).strip()
+            if str(selection_decision(selection).get("content_id", "")).strip()
         }
         displayed_editorial_keys = {
             self._editorial_dedup_key(
-                str(selection.get("title", "")).strip(),
-                str(selection.get("url", "")).strip(),
+                str(selection_decision(selection).get("title", "")).strip(),
+                str(selection_decision(selection).get("url", "")).strip(),
             )
             for selection in selections
-            if str(selection.get("type", "")).strip().lower() != "builder"
+            if str(selection_decision(selection).get("type", "")).strip().lower() != "builder"
         }
         displayed_editorial_keys.discard("")
         displayed_builder_urls = {
@@ -246,13 +269,13 @@ class DailyDigestBuilder:
         displayed_builder_urls.update(
             str(evidence.get("url", "")).strip()
             for theme in themes
-            for evidence in theme.get("evidence", [])
+            for evidence in theme_copy(theme).get("evidence", [])
             if str(evidence.get("url", "")).strip()
         )
         related_ids = {
             str(content_id).strip()
             for theme in themes
-            for content_id in theme.get("related_content_ids", [])
+            for content_id in theme_decision(theme).get("member_content_ids", [])
             if str(content_id).strip()
         }
 
@@ -295,8 +318,10 @@ class DailyDigestBuilder:
                     return supplementary
 
         for candidate in candidates_data.get("builder_hot_candidates", []):
-            url = str(candidate.get("url", "")).strip()
-            source_name = str(candidate.get("source", "")).strip()
+            candidate_decision = builder_candidate_decision(candidate)
+            candidate_copy = builder_candidate_copy(candidate)
+            url = str(candidate_decision.get("url", "")).strip()
+            source_name = str(candidate_decision.get("source", "")).strip()
             if not url or not source_name:
                 continue
             if url in displayed_builder_urls:
@@ -310,7 +335,7 @@ class DailyDigestBuilder:
                     "title": "",
                     "url": url,
                     "brief": self._strip_terminal_punctuation(
-                        str(candidate.get("spotlight_text") or candidate.get("core_claim", "")).strip()
+                        str(candidate_copy.get("spotlight_text") or candidate_copy.get("core_claim", "")).strip()
                     ),
                 }
             )
@@ -348,7 +373,7 @@ class DailyDigestBuilder:
         normalized_selections: list[dict[str, Any]] = []
         selection_ids: set[str] = set()
         for selection in selections:
-            content_id = str(selection.get("content_id", "")).strip()
+            content_id = str(selection_decision(selection).get("content_id", "")).strip()
             if not content_id:
                 continue
             if content_id in selection_ids:
@@ -374,10 +399,13 @@ class DailyDigestBuilder:
         package_key = self._package_family_key(title)
         if package_key:
             return package_key
+        normalized_title = title.strip().lower()
+        if normalized_title:
+            return normalized_title
         normalized_url = url.strip().lower()
         if normalized_url:
             return normalized_url
-        return title.strip().lower()
+        return ""
 
     def _package_family_key(self, title: str) -> str:
         lowered = title.lower()
@@ -416,9 +444,13 @@ class DailyDigestBuilder:
         selections_data: dict[str, Any] | None,
         candidates_data: dict[str, Any] | None,
     ) -> list[dict[str, str]]:
-        themes_payload = themes_data or {}
-        selections = list((selections_data or {}).get("selections", []))
-        supplementary_items = self._build_supplementary_candidates(themes_payload, selections, candidates_data or {})
+        themes_payload = normalize_daily_themes_payload(themes_data)
+        selections = list(normalize_daily_selections_payload(selections_data).get("selections", []))
+        supplementary_items = self._build_supplementary_candidates(
+            themes_payload,
+            selections,
+            normalize_daily_candidates_payload(candidates_data),
+        )
         selections, supplementary_items = self._enforce_section_invariants(selections, supplementary_items)
         return self.collect_url_conflicts(selections, supplementary_items)
 
@@ -431,8 +463,9 @@ class DailyDigestBuilder:
         seen_by_url: dict[str, tuple[str, str]] = {}
         for section_name, items in (("selection", selections), ("supplementary", supplementary_items)):
             for item in items:
-                url = str(item.get("url", "")).strip()
-                content_id = str(item.get("content_id", "")).strip()
+                item_payload = selection_decision(item) if section_name == "selection" else item
+                url = str(item_payload.get("url", "")).strip()
+                content_id = str(item_payload.get("content_id", "")).strip()
                 if not url or not content_id:
                     continue
                 previous = seen_by_url.get(url)
@@ -487,6 +520,11 @@ class DailyDigestBuilder:
             return False
         if left_norm == right_norm:
             return True
+        shorter, longer = sorted((left_norm, right_norm), key=len)
+        if len(shorter) >= 12 and shorter in longer:
+            return True
+        if SequenceMatcher(None, left_norm, right_norm).ratio() >= 0.6:
+            return True
         left_tokens = set(left_norm.split())
         right_tokens = set(right_norm.split())
         if not left_tokens or not right_tokens:
@@ -515,21 +553,25 @@ class DailyDigestBuilder:
         return f"- {self._source_icon('builder')} {source_md}：{text}"
 
     def _render_selection_block(self, selection: dict[str, Any]) -> str:
-        icon = self._source_icon(str(selection.get("type", "article")).strip().lower())
-        source_name = str(selection.get("channel_or_source", "未知来源")).strip() or "未知来源"
+        decision = selection_decision(selection)
+        copy = selection_copy(selection)
+        icon = self._source_icon(str(decision.get("type", "article")).strip().lower())
+        source_name = str(decision.get("channel_or_source", "未知来源")).strip() or "未知来源"
         display_name = self._get_display_name(source_name)
-        title = str(selection.get("title", "Untitled")).strip() or "Untitled"
-        url = str(selection.get("url", "")).strip()
-        value_pitch = self._strip_terminal_punctuation(str(selection.get("value_pitch", "")).strip())
+        title = str(decision.get("title", "Untitled")).strip() or "Untitled"
+        url = str(decision.get("url", "")).strip()
+        value_pitch = self._strip_terminal_punctuation(str(copy.get("value_pitch", "")).strip())
         return f"{icon} **{display_name}**\n[{title}]({url})\n{value_pitch}"
 
     def _render_markdown_selection_block(self, selection: dict[str, Any]) -> list[str]:
-        icon = self._source_icon(str(selection.get("type", "article")).strip().lower())
-        source_name = str(selection.get("channel_or_source", "未知来源")).strip() or "未知来源"
+        decision = selection_decision(selection)
+        copy = selection_copy(selection)
+        icon = self._source_icon(str(decision.get("type", "article")).strip().lower())
+        source_name = str(decision.get("channel_or_source", "未知来源")).strip() or "未知来源"
         display_name = self._get_display_name(source_name)
-        title = str(selection.get("title", "Untitled")).strip() or "Untitled"
-        url = str(selection.get("url", "")).strip()
-        value_pitch = self._strip_terminal_punctuation(str(selection.get("value_pitch", "")).strip())
+        title = str(decision.get("title", "Untitled")).strip() or "Untitled"
+        url = str(decision.get("url", "")).strip()
+        value_pitch = self._strip_terminal_punctuation(str(copy.get("value_pitch", "")).strip())
         return [f"{icon} **{display_name}**", f"[{title}]({url})", value_pitch]
 
     def _render_supplementary_line(self, item: dict[str, Any]) -> str:
