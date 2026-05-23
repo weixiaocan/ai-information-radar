@@ -40,12 +40,7 @@ class DailyDigestBuilder:
         spotlight_posts = list(themes_payload.get("spotlight_posts", []))
         selections_payload = normalize_daily_selections_payload(selections_data)
         selections = list(selections_payload.get("selections", []))
-        supplementary_items = self._build_supplementary_candidates(
-            themes_payload,
-            selections,
-            normalize_daily_candidates_payload(candidates_data),
-        )
-        selections, supplementary_items = self._enforce_section_invariants(selections, supplementary_items)
+        supplementary_items = list(themes_payload.get("supplementary_items", []))
         self._warn_on_url_conflicts(selections, supplementary_items)
         stats_payload = stats or {"total": 0}
         digest_date = target_date or date.today()
@@ -162,12 +157,7 @@ class DailyDigestBuilder:
         spotlight_posts = list(themes_payload.get("spotlight_posts", []))
         selections_payload = normalize_daily_selections_payload(selections_data)
         selections = list(selections_payload.get("selections", []))
-        supplementary_items = self._build_supplementary_candidates(
-            themes_payload,
-            selections,
-            normalize_daily_candidates_payload(candidates_data),
-        )
-        selections, supplementary_items = self._enforce_section_invariants(selections, supplementary_items)
+        supplementary_items = list(themes_payload.get("supplementary_items", []))
         self._warn_on_url_conflicts(selections, supplementary_items)
         stats_payload = stats or {"total": 0}
         digest_date = target_date or date.today()
@@ -446,12 +436,7 @@ class DailyDigestBuilder:
     ) -> list[dict[str, str]]:
         themes_payload = normalize_daily_themes_payload(themes_data)
         selections = list(normalize_daily_selections_payload(selections_data).get("selections", []))
-        supplementary_items = self._build_supplementary_candidates(
-            themes_payload,
-            selections,
-            normalize_daily_candidates_payload(candidates_data),
-        )
-        selections, supplementary_items = self._enforce_section_invariants(selections, supplementary_items)
+        supplementary_items = list(themes_payload.get("supplementary_items", []))
         return self.collect_url_conflicts(selections, supplementary_items)
 
     def collect_url_conflicts(

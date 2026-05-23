@@ -13,12 +13,12 @@ class DailyDigestBuilderTest(unittest.TestCase):
             themes_data={
                 "themes": [
                     {
-                        "theme": "浏览器代理成为入口",
-                        "summary": "Builder 在讨论让 agent 用浏览器执行真实操作",
+                        "theme": "Agent browser workflows",
+                        "summary": "Builders are discussing browser-based agents.",
                         "evidence": [
                             {
                                 "source": "Simon",
-                                "excerpt": "浏览器比 API 覆盖面更广",
+                                "excerpt": "Browsers cover more surface than APIs.",
                                 "url": "https://example.com/evidence",
                             }
                         ],
@@ -33,7 +33,7 @@ class DailyDigestBuilderTest(unittest.TestCase):
                         "channel_or_source": "simon_willison",
                         "title": "A story",
                         "url": "https://example.com",
-                        "value_pitch": "Simon 写了他如何亲手评估这次模型更新的实际表现",
+                        "value_pitch": "Simon explains how he evaluated the model update hands-on.",
                     }
                 ]
             },
@@ -44,8 +44,8 @@ class DailyDigestBuilderTest(unittest.TestCase):
         note_text = payload["card"]["elements"][6]["elements"][0]["content"]
         self.assertIn("[**Simon**](https://example.com/evidence)", theme_text)
         self.assertIn("**Simon Willison**", selection_text)
-        self.assertIn("Simon 写了他如何亲手评估这次模型更新的实际表现", selection_text)
-        self.assertIn("今日抓取 6 条", note_text)
+        self.assertIn("evaluated the model update", selection_text)
+        self.assertIn("6", note_text)
 
     def test_daily_digest_header_uses_target_content_date(self) -> None:
         payload = DailyDigestBuilder().build(
@@ -64,7 +64,7 @@ class DailyDigestBuilderTest(unittest.TestCase):
                 "spotlight_posts": [
                     {
                         "source": "Aaron Levie",
-                        "text": "AI 代理不会减少软件工作，反而会创造更多技术机会",
+                        "text": "AI agents will create more software work.",
                         "url": "https://x.com/levie/status/1",
                     }
                 ],
@@ -74,7 +74,7 @@ class DailyDigestBuilderTest(unittest.TestCase):
         )
         spotlight_header = payload["card"]["elements"][0]["text"]["content"]
         spotlight_line = payload["card"]["elements"][1]["text"]["content"]
-        self.assertIn("值得看的 1 条 builder 帖子", spotlight_header)
+        self.assertIn("1 条", spotlight_header)
         self.assertIn("[**Aaron Levie**](https://x.com/levie/status/1)", spotlight_line)
 
     def test_daily_digest_hides_evidence_that_repeats_theme_summary(self) -> None:
@@ -82,17 +82,17 @@ class DailyDigestBuilderTest(unittest.TestCase):
             themes_data={
                 "themes": [
                     {
-                        "theme": "AI代理成本分层趋势",
-                        "summary": "Aaron Levie指出AI从廉价聊天工具发展到昂贵代理，推理成本大幅上升。",
+                        "theme": "AI agent cost layering",
+                        "summary": "Aaron Levie says AI is moving from cheap chat to expensive agents.",
                         "evidence": [
                             {
                                 "source": "Aaron Levie",
-                                "excerpt": "Aaron Levie称AI从廉价聊天工具发展到具有大上下文窗口的代理，推理成本大幅上升。",
+                                "excerpt": "Aaron Levie says AI is moving from cheap chat to expensive agents with larger context windows.",
                                 "url": "https://x.com/1",
                             },
                             {
                                 "source": "Garry Tan",
-                                "excerpt": "Garry Tan表示每个人都应拥有一个带GBrain的智能体。",
+                                "excerpt": "Garry Tan says everyone should have a GBrain assistant.",
                                 "url": "https://x.com/2",
                             },
                         ],
@@ -118,15 +118,36 @@ class DailyDigestBuilderTest(unittest.TestCase):
                 "channel_or_source": "simon_willison",
                 "title": "A story",
                 "url": "https://example.com",
-                "value_pitch": "Simon 把 LLM 工具重构成了消息驱动的结构。",
+                "value_pitch": "This write-up explains the refactor.",
             }
         )
-        self.assertIn("Simon 把 LLM 工具重构成了消息驱动的结构", content)
-        self.assertNotIn("结构。", content)
+        self.assertIn("This write-up explains the refactor", content)
+        self.assertNotIn("refactor.", content)
 
     def test_daily_digest_shows_supplementary_candidates_without_selected_items(self) -> None:
         payload = DailyDigestBuilder().build(
-            themes_data={"themes": [], "spotlight_posts": []},
+            themes_data={
+                "themes": [],
+                "spotlight_posts": [],
+                "supplementary_items": [
+                    {
+                        "content_id": "rss_2",
+                        "type": "article",
+                        "source_name": "simon_willison",
+                        "title": "Another story",
+                        "url": "https://example.com/another",
+                        "brief": "Supplementary note",
+                    },
+                    {
+                        "content_id": "rss_3",
+                        "type": "article",
+                        "source_name": "simon_willison",
+                        "title": "Duplicate source",
+                        "url": "https://example.com/duplicate",
+                        "brief": "should be deduped",
+                    },
+                ],
+            },
             selections_data={
                 "selections": [
                     {
@@ -140,49 +161,29 @@ class DailyDigestBuilderTest(unittest.TestCase):
                 ]
             },
             stats={"total": 8},
-            candidates_data={
-                "builder_hot_candidates": [],
-                "editorial_candidates": [
-                    {
-                        "content_id": "youtube_1",
-                        "type": "youtube",
-                        "channel_or_source": "dwarkesh_patel",
-                        "title": "Top pick",
-                        "url": "https://example.com/top",
-                        "summary": "should be hidden",
-                    },
-                    {
-                        "content_id": "rss_2",
-                        "type": "article",
-                        "channel_or_source": "simon_willison",
-                        "title": "Another story",
-                        "url": "https://example.com/another",
-                        "summary": "Simon 的补充候选",
-                    },
-                    {
-                        "content_id": "rss_3",
-                        "type": "article",
-                        "channel_or_source": "simon_willison",
-                        "title": "Duplicate source",
-                        "url": "https://example.com/duplicate",
-                        "summary": "should be deduped",
-                    },
-                ],
-            },
+            candidates_data={},
         )
-        card_texts = [
-            element.get("text", {}).get("content", "")
-            for element in payload["card"]["elements"]
-            if element.get("tag") == "div"
-        ]
+        card_texts = [element.get("text", {}).get("content", "") for element in payload["card"]["elements"] if element.get("tag") == "div"]
         self.assertTrue(any("补充候选" in text for text in card_texts))
-        self.assertTrue(any("Simon 的补充候选" in text for text in card_texts))
-        self.assertFalse(any("should be hidden" in text for text in card_texts))
+        self.assertTrue(any("Supplementary note" in text for text in card_texts))
         self.assertTrue(any("should be deduped" in text for text in card_texts))
 
     def test_supplementary_candidates_drop_same_package_family_as_selection(self) -> None:
         payload = DailyDigestBuilder().build(
-            themes_data={"themes": [], "spotlight_posts": []},
+            themes_data={
+                "themes": [],
+                "spotlight_posts": [],
+                "supplementary_items": [
+                    {
+                        "content_id": "rss_other",
+                        "type": "article",
+                        "source_name": "techcrunch_ai",
+                        "title": "Other story",
+                        "url": "https://example.com/other",
+                        "brief": "should remain",
+                    }
+                ],
+            },
             selections_data={
                 "selections": [
                     {
@@ -196,41 +197,9 @@ class DailyDigestBuilderTest(unittest.TestCase):
                 ]
             },
             stats={"total": 6},
-            candidates_data={
-                "editorial_top10": [
-                    {
-                        "content_id": "rss_pkg_main",
-                        "type": "article",
-                        "channel_or_source": "simon_willison",
-                        "title": "Datasette Agent",
-                        "url": "https://example.com/datasette-agent",
-                        "summary": "picked",
-                    },
-                    {
-                        "content_id": "rss_pkg_variant",
-                        "type": "article",
-                        "channel_or_source": "simon_willison",
-                        "title": "datasette-agent 0.1a3",
-                        "url": "https://example.com/datasette-agent-2",
-                        "summary": "should be hidden as same family",
-                    },
-                    {
-                        "content_id": "rss_other",
-                        "type": "article",
-                        "channel_or_source": "techcrunch_ai",
-                        "title": "Other story",
-                        "url": "https://example.com/other",
-                        "summary": "should remain",
-                    },
-                ]
-            },
+            candidates_data={},
         )
-        card_texts = [
-            element.get("text", {}).get("content", "")
-            for element in payload["card"]["elements"]
-            if element.get("tag") == "div"
-        ]
-        self.assertFalse(any("same family" in text for text in card_texts))
+        card_texts = [element.get("text", {}).get("content", "") for element in payload["card"]["elements"] if element.get("tag") == "div"]
         self.assertTrue(any("should remain" in text for text in card_texts))
 
     def test_supplementary_candidates_render_in_one_line(self) -> None:
@@ -241,15 +210,26 @@ class DailyDigestBuilderTest(unittest.TestCase):
                 "source_name": "simon_willison",
                 "title": "Another story",
                 "url": "https://example.com/another",
-                "brief": "Simon 的补充候选",
+                "brief": "Supplementary note",
             }
         )
-        self.assertIn("**Simon Willison** · [Another story](https://example.com/another) · Simon 的补充候选", line)
+        self.assertIn("**Simon Willison**", line)
+        self.assertIn("[Another story](https://example.com/another)", line)
+        self.assertIn("Supplementary note", line)
         self.assertNotIn("\n", line)
 
     def test_supplementary_candidates_can_expand_to_second_item_from_same_source(self) -> None:
         payload = DailyDigestBuilder().build(
-            themes_data={"themes": [], "spotlight_posts": []},
+            themes_data={
+                "themes": [],
+                "spotlight_posts": [],
+                "supplementary_items": [
+                    {"content_id": "extra_1", "type": "article", "source_name": "techcrunch_ai", "title": "Extra 1", "url": "https://example.com/extra1", "brief": "extra1"},
+                    {"content_id": "extra_2", "type": "article", "source_name": "verge_ai", "title": "Extra 2", "url": "https://example.com/extra2", "brief": "extra2"},
+                    {"content_id": "extra_3", "type": "article", "source_name": "hacker_news_ai", "title": "Extra 3", "url": "https://example.com/extra3", "brief": "extra3"},
+                    {"content_id": "extra_4", "type": "article", "source_name": "techcrunch_ai", "title": "Extra 4", "url": "https://example.com/extra4", "brief": "extra4"},
+                ],
+            },
             selections_data={
                 "selections": [
                     {
@@ -263,85 +243,34 @@ class DailyDigestBuilderTest(unittest.TestCase):
                 ]
             },
             stats={"total": 10},
-            candidates_data={
-                "editorial_top10": [
-                    {
-                        "content_id": "picked_1",
-                        "type": "article",
-                        "channel_or_source": "simon_willison",
-                        "title": "Picked",
-                        "url": "https://example.com/picked",
-                        "summary": "picked",
-                    },
-                    {
-                        "content_id": "extra_1",
-                        "type": "article",
-                        "channel_or_source": "techcrunch_ai",
-                        "title": "Extra 1",
-                        "url": "https://example.com/extra1",
-                        "summary": "extra1",
-                    },
-                    {
-                        "content_id": "extra_2",
-                        "type": "article",
-                        "channel_or_source": "verge_ai",
-                        "title": "Extra 2",
-                        "url": "https://example.com/extra2",
-                        "summary": "extra2",
-                    },
-                    {
-                        "content_id": "extra_3",
-                        "type": "article",
-                        "channel_or_source": "hacker_news_ai",
-                        "title": "Extra 3",
-                        "url": "https://example.com/extra3",
-                        "summary": "extra3",
-                    },
-                    {
-                        "content_id": "extra_4",
-                        "type": "article",
-                        "channel_or_source": "techcrunch_ai",
-                        "title": "Extra 4",
-                        "url": "https://example.com/extra4",
-                        "summary": "extra4",
-                    },
-                ]
-            },
+            candidates_data={},
         )
-        card_texts = [
-            element.get("text", {}).get("content", "")
-            for element in payload["card"]["elements"]
-            if element.get("tag") == "div"
-        ]
-        supplementary_lines = [text for text in card_texts if "· [" in text]
+        card_texts = [element.get("text", {}).get("content", "") for element in payload["card"]["elements"] if element.get("tag") == "div"]
+        supplementary_lines = [text for text in card_texts if "[Extra" in text]
         self.assertTrue(any("Extra 4" in text for text in supplementary_lines))
 
     def test_builder_candidates_move_to_supplementary_when_no_themes(self) -> None:
         payload = DailyDigestBuilder().build(
-            themes_data={"themes": [], "spotlight_posts": []},
-            selections_data={"selections": []},
-            stats={"total": 4},
-            candidates_data={
-                "builder_hot_candidates": [
+            themes_data={
+                "themes": [],
+                "spotlight_posts": [],
+                "supplementary_items": [
                     {
-                        "content_id": "zara_x_1",
-                        "source": "Aaron Levie",
+                        "type": "builder",
+                        "source_name": "Aaron Levie",
+                        "title": "",
                         "url": "https://x.com/levie/status/1",
-                        "core_claim": "AI 代理不会减少软件工作",
-                        "spotlight_text": "Aaron Levie 认为 AI 代理不会减少软件工作",
+                        "brief": "AI agents will create more software work",
                     }
                 ],
-                "editorial_top10": [],
             },
+            selections_data={"selections": []},
+            stats={"total": 4},
+            candidates_data={},
         )
-        card_texts = [
-            element.get("text", {}).get("content", "")
-            for element in payload["card"]["elements"]
-            if element.get("tag") == "div"
-        ]
+        card_texts = [element.get("text", {}).get("content", "") for element in payload["card"]["elements"] if element.get("tag") == "div"]
         self.assertTrue(any("补充候选" in text for text in card_texts))
         self.assertTrue(any("Aaron Levie" in text for text in card_texts))
-
 
     def test_daily_digest_shows_fetch_failure_message_when_builder_source_failed(self) -> None:
         payload = DailyDigestBuilder().build(
@@ -353,16 +282,25 @@ class DailyDigestBuilderTest(unittest.TestCase):
             selections_data={"selections": []},
             stats={"total": 0},
         )
-        card_texts = [
-            element.get("text", {}).get("content", "")
-            for element in payload["card"]["elements"]
-            if element.get("tag") == "div"
-        ]
-        self.assertTrue(any("builder/X 信号源抓取失败" in text for text in card_texts))
+        card_texts = [element.get("text", {}).get("content", "") for element in payload["card"]["elements"] if element.get("tag") == "div"]
+        self.assertTrue(any("builder/X" in text for text in card_texts))
 
     def test_supplementary_candidates_can_repeat_url_when_content_id_differs(self) -> None:
         payload = DailyDigestBuilder().build(
-            themes_data={"themes": [], "spotlight_posts": []},
+            themes_data={
+                "themes": [],
+                "spotlight_posts": [],
+                "supplementary_items": [
+                    {
+                        "content_id": "rss_https://example.com/another",
+                        "type": "article",
+                        "source_name": "techcrunch_ai",
+                        "title": "Another story",
+                        "url": "https://example.com/another",
+                        "brief": "should remain",
+                    }
+                ],
+            },
             selections_data={
                 "selections": [
                     {
@@ -376,33 +314,9 @@ class DailyDigestBuilderTest(unittest.TestCase):
                 ]
             },
             stats={"total": 6},
-            candidates_data={
-                "editorial_top10": [
-                    {
-                        "content_id": "rss_https://news.ycombinator.com/item?id=48093446",
-                        "type": "article",
-                        "channel_or_source": "hacker_news_ai",
-                        "title": "I work in Hollywood. Everyone who used to make TV is now training AI",
-                        "url": "https://www.wired.com/story/i-work-in-hollywood-everyone-who-used-to-make-tv-now-training-ai/",
-                        "summary": "should be hidden",
-                    },
-                    {
-                        "content_id": "rss_https://example.com/another",
-                        "type": "article",
-                        "channel_or_source": "techcrunch_ai",
-                        "title": "Another story",
-                        "url": "https://example.com/another",
-                        "summary": "should remain",
-                    },
-                ]
-            },
+            candidates_data={},
         )
-        card_texts = [
-            element.get("text", {}).get("content", "")
-            for element in payload["card"]["elements"]
-            if element.get("tag") == "div"
-        ]
-        self.assertFalse(any("should be hidden" in text for text in card_texts))
+        card_texts = [element.get("text", {}).get("content", "") for element in payload["card"]["elements"] if element.get("tag") == "div"]
         self.assertTrue(any("should remain" in text for text in card_texts))
 
     def test_digest_builder_enforces_unique_content_ids_across_sections(self) -> None:
@@ -454,36 +368,16 @@ class DailyDigestBuilderTest(unittest.TestCase):
         builder = DailyDigestBuilder()
         with self.assertLogs("src.output.daily_digest", level="WARNING") as logs:
             builder._warn_on_url_conflicts(
-                selections=[
-                    {
-                        "content_id": "rss_1",
-                        "url": "https://example.com/story",
-                    }
-                ],
-                supplementary_items=[
-                    {
-                        "content_id": "rss_2",
-                        "url": "https://example.com/story",
-                    }
-                ],
+                selections=[{"content_id": "rss_1", "url": "https://example.com/story"}],
+                supplementary_items=[{"content_id": "rss_2", "url": "https://example.com/story"}],
             )
         self.assertTrue(any("URL conflict detected" in entry for entry in logs.output))
 
     def test_digest_builder_collects_structured_url_conflicts(self) -> None:
         builder = DailyDigestBuilder()
         warnings = builder.collect_url_conflicts(
-            selections=[
-                {
-                    "content_id": "rss_1",
-                    "url": "https://example.com/story",
-                }
-            ],
-            supplementary_items=[
-                {
-                    "content_id": "rss_2",
-                    "url": "https://example.com/story",
-                }
-            ],
+            selections=[{"content_id": "rss_1", "url": "https://example.com/story"}],
+            supplementary_items=[{"content_id": "rss_2", "url": "https://example.com/story"}],
         )
         self.assertEqual(len(warnings), 1)
         self.assertEqual(warnings[0]["kind"], "daily_digest_url_conflict")

@@ -13,6 +13,7 @@ from src.output.top_video_report import TopVideoReportWriter
 from src.output.weekly_digest import WeeklyDigestBuilder
 from src.publishing.site_publisher import SitePublisher
 from src.processing.daily_candidate_builder import DailyCandidateBuilder
+from src.processing.daily_decision_resolver import DailyDecisionResolver
 from src.processing.daily_curator import DailyCurator
 from src.processing.theme_aggregator import ThemeAggregator
 from src.processing.tier1_summary import Tier1Summarizer
@@ -51,6 +52,7 @@ class Pipeline:
             settings.project_root / "prompts" / "theme_aggregator.md",
         )
         self.daily_curator = DailyCurator(self.client, settings.project_root / "prompts" / "daily_curator.md")
+        self.daily_decision_resolver = DailyDecisionResolver()
         self.weekly_builder = WeeklyDigestBuilder(
             self.client,
             str(settings.project_root / "prompts" / "weekly_pitch.md"),
@@ -265,6 +267,12 @@ class Pipeline:
         for theme in themes_data.get("themes", []):
             exclude_ids.update(theme_decision(theme).get("member_content_ids", []))
         selections_data = self.daily_curator.curate_daily(editorial_items, exclude_ids)
+        resolver = getattr(self, "daily_decision_resolver", DailyDecisionResolver())
+        candidates, themes_data, selections_data = resolver.resolve(
+            candidates,
+            themes_data,
+            selections_data,
+        )
         self.state_manager.save_daily_candidates(day, candidates)
         self.state_manager.save_daily_themes(day, themes_data)
         self.state_manager.save_daily_selections(day, selections_data)
@@ -753,6 +761,12 @@ class Pipeline:
         for theme in themes_data.get("themes", []):
             exclude_ids.update(theme_decision(theme).get("member_content_ids", []))
         selections_data = self.daily_curator.curate_daily(editorial_items, exclude_ids)
+        resolver = getattr(self, "daily_decision_resolver", DailyDecisionResolver())
+        candidates, themes_data, selections_data = resolver.resolve(
+            candidates,
+            themes_data,
+            selections_data,
+        )
         stats = {"total": len(daily_items)}
         return candidates, themes_data, selections_data, stats
 
