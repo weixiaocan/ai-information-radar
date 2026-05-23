@@ -11,13 +11,13 @@ from src.utils.daily_state import builder_candidate_copy, builder_candidate_deci
 class DailyCandidateBuilderTest(unittest.TestCase):
     def test_synthesize_signal_from_english_builder_post(self) -> None:
         client = Mock()
-        client.daily_theme_signals.return_value = {
+        client.daily_builder_hot_copy.return_value = {
             "signals": [
                 {
                     "content_id": "zara_x_2",
                     "source": "Zara Zhang",
                     "url": "https://x.com/zarazhangrui/status/2",
-                    "topic_label": "AI团队设计",
+                    "topic_label": "AI 团队设计",
                     "core_claim": "这是中文核心观点",
                     "angle": "经验观察",
                     "excerpt": "这是中文摘录",
@@ -47,9 +47,19 @@ class DailyCandidateBuilderTest(unittest.TestCase):
         self.assertEqual(builder_candidate_decision(payload)["source"], "Zara Zhang")
         self.assertEqual(builder_candidate_copy(payload)["spotlight_text"], "这是中文核心观点")
 
-    def test_builder_signal_retries_until_spotlight_text_is_chinese(self) -> None:
+    def test_builder_copy_retries_until_spotlight_text_is_chinese(self) -> None:
         client = Mock()
-        client.daily_theme_signals.side_effect = [
+        client.daily_builder_hot_decisions.return_value = {
+            "signals": [
+                {
+                    "content_id": "zara_x_1",
+                    "source": "Zara Zhang",
+                    "url": "https://x.com/zarazhangrui/status/1",
+                    "topic_key": "AI 团队设计",
+                }
+            ]
+        }
+        client.daily_builder_hot_copy.side_effect = [
             {
                 "signals": [
                     {
@@ -70,21 +80,7 @@ class DailyCandidateBuilderTest(unittest.TestCase):
                         "content_id": "zara_x_1",
                         "source": "Zara Zhang",
                         "url": "https://x.com/zarazhangrui/status/1",
-                        "topic_label": "AI团队设计",
-                        "core_claim": "这是中文核心观点",
-                        "angle": "经验观察",
-                        "excerpt": "这是中文摘录",
-                        "spotlight_text": "这是中文聚光句",
-                    }
-                ]
-            },
-            {
-                "signals": [
-                    {
-                        "content_id": "zara_x_1",
-                        "source": "Zara Zhang",
-                        "url": "https://x.com/zarazhangrui/status/1",
-                        "topic_label": "AI团队设计",
+                        "topic_label": "AI 团队设计",
                         "core_claim": "这是中文核心观点",
                         "angle": "经验观察",
                         "excerpt": "这是中文摘录",
@@ -113,19 +109,29 @@ class DailyCandidateBuilderTest(unittest.TestCase):
 
         payload = builder.build(items)
 
-        self.assertEqual(client.daily_theme_signals.call_count, 2)
+        self.assertEqual(client.daily_builder_hot_copy.call_count, 2)
         self.assertEqual(builder_candidate_decision(payload["builder_hot_candidates"][0])["source"], "Zara Zhang")
         self.assertEqual(builder_candidate_copy(payload["builder_hot_candidates"][0])["spotlight_text"], "这是中文核心观点")
 
     def test_builder_signal_source_uses_authoritative_author_name(self) -> None:
         client = Mock()
-        client.daily_theme_signals.return_value = {
+        client.daily_builder_hot_decisions.return_value = {
             "signals": [
                 {
                     "content_id": "zara_x_1",
                     "source": "X",
                     "url": "https://x.com/garrytan/status/1",
-                    "topic_label": "GBrain发布",
+                    "topic_key": "GBrain 发布",
+                }
+            ]
+        }
+        client.daily_builder_hot_copy.return_value = {
+            "signals": [
+                {
+                    "content_id": "zara_x_1",
+                    "source": "X",
+                    "url": "https://x.com/garrytan/status/1",
+                    "topic_label": "GBrain 发布",
                     "core_claim": "这是中文核心观点",
                     "angle": "产品发布",
                     "excerpt": "这是中文摘录",
@@ -154,6 +160,56 @@ class DailyCandidateBuilderTest(unittest.TestCase):
         payload = builder.build(items)
 
         self.assertEqual(builder_candidate_decision(payload["builder_hot_candidates"][0])["source"], "Garry Tan")
+
+    def test_builder_preserves_decision_when_copy_generation_fails(self) -> None:
+        client = Mock()
+        client.daily_builder_hot_decisions.return_value = {
+            "signals": [
+                {
+                    "content_id": "zara_x_1",
+                    "source": "Aaron Levie",
+                    "url": "https://x.com/1",
+                    "topic_key": "Agent 工程岗位",
+                }
+            ]
+        }
+        client.daily_builder_hot_copy.return_value = {
+            "signals": [
+                {
+                    "content_id": "zara_x_1",
+                    "source": "Aaron Levie",
+                    "url": "https://x.com/1",
+                    "topic_label": "",
+                    "core_claim": "",
+                    "angle": "",
+                    "excerpt": "",
+                    "spotlight_text": "",
+                }
+            ]
+        }
+        builder = DailyCandidateBuilder(client, Path("prompts/theme_signal_extractor.md"))
+        builder._is_weak_signal = Mock(return_value=False)  # type: ignore[method-assign]
+        items = [
+            ContentItem(
+                content_id="zara_x_1",
+                source_type="zara_x",
+                source_name="zara_x",
+                title="Agent hiring",
+                url="https://x.com/1",
+                author="Aaron Levie",
+                published_at=datetime(2026, 5, 5, tzinfo=timezone.utc),
+                fetched_at=datetime(2026, 5, 5, 1, tzinfo=timezone.utc),
+                body="Companies will need internal agent engineers.",
+                body_type="tweet",
+                ai_summary="Companies will need internal agent engineers.",
+            )
+        ]
+
+        payload = builder.build(items)
+
+        candidate = payload["builder_hot_candidates"][0]
+        self.assertEqual(builder_candidate_decision(candidate)["content_id"], "zara_x_1")
+        self.assertTrue(builder_candidate_copy(candidate)["core_claim"])
 
 
 if __name__ == "__main__":

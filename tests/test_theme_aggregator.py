@@ -1,14 +1,18 @@
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import Mock
 
+from src.models.content_item import ContentItem
 from src.processing.theme_aggregator import ThemeAggregator
 
 
 class ThemeAggregatorValidationTest(unittest.TestCase):
     def _make_aggregator(self) -> ThemeAggregator:
         return ThemeAggregator(
-            client=None,  # type: ignore[arg-type]
-            prompt_path=Path("prompts/theme_aggregator.md"),
+            client=Mock(),
+            prompt_path=Path("prompts/theme_decision.md"),
+            copy_prompt_path=Path("prompts/theme_copy.md"),
         )
 
     def test_collect_issues_flags_english_excerpt_and_missing_url(self) -> None:
@@ -81,21 +85,21 @@ class ThemeAggregatorValidationTest(unittest.TestCase):
             {
                 "themes": [
                     {
-                        "summary": "Aaron Levie指出AI从廉价聊天工具发展到昂贵代理，推理成本大幅上升。",
+                        "summary": "Aaron Levie 指出 AI 从廉价聊天工具发展到昂贵代理，推理成本明显上升。",
                         "evidence": [
                             {
                                 "source": "Aaron Levie",
-                                "excerpt": "Aaron Levie称AI从廉价聊天工具发展到具有大上下文窗口的代理，推理成本大幅上升。",
+                                "excerpt": "Aaron Levie 说 AI 从廉价聊天工具发展到具有大上下文窗口的代理，推理成本大幅上升。",
                                 "url": "https://x.com/1",
                             },
                             {
                                 "source": "Garry Tan",
-                                "excerpt": "Garry Tan提到每个人都应拥有一个带GBrain的智能体。",
+                                "excerpt": "Garry Tan 提到每个人都应该拥有一个带 GBrain 的智能体。",
                                 "url": "https://x.com/2",
                             },
                             {
                                 "source": "Zara Zhang",
-                                "excerpt": "该工具允许用户在飞书中像同事一样与Claude Code对话。",
+                                "excerpt": "该工具允许用户在飞书里像同事一样与 Claude Code 对话。",
                                 "url": "https://x.com/3",
                             },
                         ],
@@ -112,7 +116,7 @@ class ThemeAggregatorValidationTest(unittest.TestCase):
                 {
                     "source": "Peter Steinberger",
                     "core_claim": "每次提交后自动审查并修复代码错误",
-                    "spotlight_text": "Peter Steinberger 现在让 Codex 在每次提交后自动审查代码，发现问题就继续修",
+                    "spotlight_text": "Peter Steinberger 现在让 Codex 在每次提交后自动审查代码，发现问题就继续修。",
                     "url": "https://x.com/test/1",
                 }
             ]
@@ -121,7 +125,7 @@ class ThemeAggregatorValidationTest(unittest.TestCase):
         self.assertEqual(payload["discussion_dispersion"], "dispersed")
         self.assertEqual(
             payload["spotlight_posts"][0]["text"],
-            "Peter Steinberger 现在让 Codex 在每次提交后自动审查代码，发现问题就继续修",
+            "Peter Steinberger 现在让 Codex 在每次提交后自动审查代码，发现问题就继续修。",
         )
 
     def test_empty_result_rewrites_generic_x_source_from_url_mapping(self) -> None:
@@ -140,6 +144,64 @@ class ThemeAggregatorValidationTest(unittest.TestCase):
             source_by_content_id={"zara_x_1": "Garry Tan"},
         )
         self.assertEqual(payload["spotlight_posts"][0]["source"], "Garry Tan")
+
+    def test_theme_membership_is_preserved_when_copy_generation_fails(self) -> None:
+        client = Mock()
+        client.daily_theme_decisions.return_value = {
+            "discussion_dispersion": "moderate",
+            "themes": [
+                {
+                    "theme_id": "theme_1",
+                    "member_content_ids": ["zara_x_1", "zara_x_2", "zara_x_3"],
+                }
+            ],
+        }
+        client.daily_theme_copy.return_value = {
+            "themes": [
+                {
+                    "theme_id": "theme_1",
+                    "theme_title": "",
+                    "theme_summary": "",
+                    "evidence": [],
+                }
+            ]
+        }
+        aggregator = ThemeAggregator(client, Path("prompts/theme_decision.md"), Path("prompts/theme_copy.md"))
+        items = [
+            ContentItem(
+                content_id=f"zara_x_{index}",
+                source_type="zara_x",
+                source_name="zara_x",
+                title=f"Builder post {index}",
+                url=f"https://x.com/{index}",
+                author=f"Builder {index}",
+                published_at=datetime(2026, 5, 5, tzinfo=timezone.utc),
+                fetched_at=datetime(2026, 5, 5, 1, tzinfo=timezone.utc),
+                body=f"Body {index}",
+                body_type="tweet",
+                ai_summary=f"Summary {index}",
+            )
+            for index in range(1, 4)
+        ]
+        signals = [
+            {
+                "decision": {"content_id": f"zara_x_{index}", "source": f"Builder {index}", "url": f"https://x.com/{index}"},
+                "copy": {
+                    "topic_label": "Agent 工程",
+                    "core_claim": f"Summary {index}",
+                    "angle": "经验观察",
+                    "excerpt": f"Summary {index}",
+                    "spotlight_text": f"Summary {index}",
+                },
+            }
+            for index in range(1, 4)
+        ]
+
+        payload = aggregator.aggregate_themes(items, signals)
+
+        self.assertEqual(payload["themes"][0]["decision"]["member_content_ids"], ["zara_x_1", "zara_x_2", "zara_x_3"])
+        self.assertTrue(payload["themes"][0]["copy"]["theme_title"])
+        self.assertTrue(payload["themes"][0]["copy"]["evidence"])
 
 
 if __name__ == "__main__":

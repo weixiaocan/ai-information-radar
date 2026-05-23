@@ -15,6 +15,7 @@ from src.utils.source_labels import get_original_source_name
 class DailyCandidateBuilder:
     client: DeepSeekClient
     signal_prompt_path: Path
+    copy_prompt_path: Path | None = None
     editorial_top_n: int = 10
     per_source_limit: int = 2
     per_topic_limit: int = 1
@@ -39,61 +40,53 @@ class DailyCandidateBuilder:
         if not builder_items:
             return []
 
-        payload = self._fetch_builder_signal_payload(builder_items)
+        decisions = self._fetch_builder_decisions(builder_items)
+        copies = self._fetch_builder_copy_payload(builder_items, decisions)
         items_by_id = {item.content_id: item for item in builder_items}
         items_by_url = {item.url: item for item in builder_items if item.url}
+        copy_by_content_id = {
+            payload["content_id"]: payload
+            for payload in copies
+            if payload.get("content_id")
+        }
         candidates: list[dict[str, Any]] = []
         seen_urls: set[str] = set()
 
-        for signal in payload.get("signals", []):
-            signal_payload = self._coerce_signal_payload(signal)
-            content_id = signal_payload["content_id"]
-            source = signal_payload["source"]
-            url = signal_payload["url"]
-            topic_label = signal_payload["topic_label"]
-            core_claim = signal_payload["core_claim"]
-            angle = signal_payload["angle"]
-            excerpt = signal_payload["excerpt"]
-            spotlight_text = signal_payload["spotlight_text"]
-            if not all([content_id, source, url, topic_label, core_claim, excerpt]):
-                continue
-            if url in seen_urls:
+        for decision in decisions:
+            content_id = decision["content_id"]
+            source = decision["source"]
+            url = decision["url"]
+            topic_key = decision["topic_key"]
+            if not all([content_id, source, url]) or url in seen_urls:
                 continue
 
             item = items_by_id.get(content_id)
-            issues = self._collect_single_signal_issues(signal_payload)
-            if issues and item:
-                repaired = self._repair_signal(item, issues)
-                if repaired:
-                    signal_payload = repaired
-                    content_id = signal_payload["content_id"]
-                    source = signal_payload["source"]
-                    url = signal_payload["url"]
-                    topic_label = signal_payload["topic_label"]
-                    core_claim = signal_payload["core_claim"]
-                    angle = signal_payload["angle"]
-                    excerpt = signal_payload["excerpt"]
-                    spotlight_text = signal_payload["spotlight_text"]
+            copy_payload = copy_by_content_id.get(content_id)
+            if copy_payload and self._collect_single_signal_issues(copy_payload):
+                copy_payload = None
+            if not copy_payload:
+                copy_payload = self._fallback_builder_copy(item, topic_key, source)
 
-            if self._collect_single_signal_issues(signal_payload):
-                continue
+            topic_label = copy_payload["topic_label"]
+            core_claim = copy_payload["core_claim"]
+            excerpt = copy_payload["excerpt"]
             if item and self._is_weak_signal(item, topic_label, core_claim, excerpt):
                 continue
 
             seen_urls.add(url)
-            source = self._resolve_builder_source(source, item, items_by_url.get(url))
+            resolved_source = self._resolve_builder_source(source, item, items_by_url.get(url))
             candidates.append(
                 self._make_builder_hot_candidate(
                     content_id=content_id,
-                    source=source,
+                    source=resolved_source,
                     url=url,
                     topic_label=topic_label,
                     core_claim=core_claim,
-                    angle=angle,
+                    angle=copy_payload["angle"],
                     excerpt=excerpt,
                     spotlight_text=self._resolve_spotlight_text(
-                        source=source,
-                        spotlight_text=spotlight_text,
+                        source=resolved_source,
+                        spotlight_text=copy_payload["spotlight_text"],
                         excerpt=excerpt,
                         core_claim=core_claim,
                     ),
@@ -115,6 +108,15 @@ class DailyCandidateBuilder:
             "angle": str(data.get("angle", "")).strip(),
             "excerpt": str(data.get("excerpt", "")).strip(),
             "spotlight_text": str(data.get("spotlight_text", "")).strip(),
+        }
+
+    def _coerce_signal_decision_payload(self, signal: dict[str, Any] | None) -> dict[str, str]:
+        data = signal or {}
+        return {
+            "content_id": str(data.get("content_id", "")).strip(),
+            "source": str(data.get("source", "")).strip(),
+            "url": str(data.get("url", "")).strip(),
+            "topic_key": str(data.get("topic_key") or data.get("topic_label") or "").strip(),
         }
 
     def _resolve_builder_source(
@@ -170,16 +172,24 @@ class DailyCandidateBuilder:
             source = item.author or item.source_name
             spotlight_text = self._truncate_text(self._normalize_spotlight_text(source, raw_excerpt), 90)
             candidates.append(
-                {
-                    "content_id": item.content_id,
-                    "source": source,
-                    "url": item.url,
-                    "topic_label": item.title[:40] or "Builder 观察",
-                    "core_claim": excerpt,
-                    "angle": "补充观察",
-                    "excerpt": excerpt,
-                    "spotlight_text": spotlight_text,
-                }
+                normalize_builder_hot_candidate(
+                    {
+                        "decision": {
+                            "content_id": item.content_id,
+                            "source": source,
+                            "url": item.url,
+                            "topic_key": item.title[:40] or "Builder 观察",
+                            "entered_hot_pool": True,
+                        },
+                        "copy": {
+                            "topic_label": item.title[:40] or "Builder 观察",
+                            "core_claim": excerpt,
+                            "angle": "补充观察",
+                            "excerpt": excerpt,
+                            "spotlight_text": spotlight_text,
+                        },
+                    }
+                )
             )
             existing_ids.add(item.content_id)
             existing_urls.add(item.url)
@@ -333,7 +343,6 @@ class DailyCandidateBuilder:
 
         high_signal_phrases = [
             "first-hand",
-            "第一手",
             "评估",
             "infrastructure",
             "安全",
@@ -454,36 +463,16 @@ class DailyCandidateBuilder:
         if len(normalized) < 18:
             return True
 
-        generic_patterns = [
-            "哈哈",
-            "lol",
-            "interesting",
-            "nice",
-            "cool",
-            "赞",
-            "转发",
-            "收藏",
-        ]
+        generic_patterns = ["哈哈", "lol", "interesting", "nice", "cool", "赞", "转发", "收藏"]
         lowered = normalized.lower()
         return any(pattern in lowered for pattern in generic_patterns)
 
-    def _is_backfill_too_vague(self, item: ContentItem, text: str) -> bool:
+    def _is_backfill_too_vague(self, item: ContentItem | None, text: str) -> bool:
         del item
         normalized = self._strip_terminal_punctuation(text.strip())
         lowered = normalized.lower()
 
-        vague_patterns = [
-            "讨论",
-            "聊",
-            "提到",
-            "谈到",
-            "说到",
-            "问题",
-            "情况",
-            "看法",
-            "观点",
-            "alignment failure",
-        ]
+        vague_patterns = ["讨论", "提到", "谈到", "说到", "问题", "情况", "看法", "观点", "alignment failure"]
         concrete_markers = [
             "发布",
             "推出",
@@ -514,10 +503,8 @@ class DailyCandidateBuilder:
 
         if has_vague_pattern and not has_concrete_marker:
             return True
-
         if len(normalized) <= 14 and " " not in normalized and not re.search(r"[A-Z0-9]", normalized):
             return True
-
         return False
 
     def _resolve_spotlight_text(
@@ -547,16 +534,9 @@ class DailyCandidateBuilder:
         normalized = self._strip_terminal_punctuation(text.strip())
         if not normalized:
             return False
-        if self._is_backfill_too_vague(None, normalized):  # type: ignore[arg-type]
+        if self._is_backfill_too_vague(None, normalized):
             return False
-        weak_phrases = [
-            "讨论",
-            "提到",
-            "聊到",
-            "说到",
-            "看法",
-            "问题",
-        ]
+        weak_phrases = ["讨论", "提到", "聊到", "说到", "看法", "问题"]
         if any(phrase in normalized for phrase in weak_phrases) and len(normalized) < 22:
             return False
         return True
@@ -594,30 +574,12 @@ class DailyCandidateBuilder:
             "coding",
             "engineer",
             "engineering",
-            "model",
-            "models",
-            "openai",
-            "anthropic",
-            "gemini",
-            "grok",
-            "codex",
         }
-        chinese_terms = [
-            "软件",
-            "模型",
-            "智能体",
-            "代理",
-            "编程",
-            "工程",
-            "自动化",
-            "推理",
-            "训练",
-            "部署",
-        ]
+        chinese_terms = ["软件", "模型", "智能体", "代理", "编程", "工程", "自动化", "推理", "训练", "部署"]
         return any(term in ascii_tokens for term in ascii_terms) or any(term in haystack for term in chinese_terms)
 
     def _strip_terminal_punctuation(self, text: str) -> str:
-        return text.rstrip("。？！.!?；;")
+        return text.rstrip("。？！!?；;：:")
 
     def _normalize_spotlight_text(self, source: str, text: str) -> str:
         normalized = self._strip_terminal_punctuation(text.strip())
@@ -627,11 +589,11 @@ class DailyCandidateBuilder:
         source_name = source.strip()
         if source_name:
             patterns = [
-                rf"^{re.escape(source_name)}\s*[：:，, ]*说",
-                rf"^{re.escape(source_name)}\s*[：:，, ]*认为",
-                rf"^{re.escape(source_name)}\s*[：:，, ]*表示",
-                rf"^{re.escape(source_name)}\s*[：:，, ]*指出",
-                rf"^{re.escape(source_name)}\s*[：:，, ]*",
+                rf"^{re.escape(source_name)}\s*[:：，,\- ]*说",
+                rf"^{re.escape(source_name)}\s*[:：，,\- ]*认为",
+                rf"^{re.escape(source_name)}\s*[:：，,\- ]*表示",
+                rf"^{re.escape(source_name)}\s*[:：，,\- ]*指出",
+                rf"^{re.escape(source_name)}\s*[:：，,\- ]*",
             ]
             for pattern in patterns:
                 updated = re.sub(pattern, "", normalized, count=1).strip()
@@ -639,7 +601,7 @@ class DailyCandidateBuilder:
                     normalized = updated
                     break
 
-        normalized = re.sub(r"^(他|她|其)\s*(说|认为|表示|指出)", "", normalized, count=1).strip()
+        normalized = re.sub(r"^(作者|原帖)\s*(说|认为|表示|指出)", "", normalized, count=1).strip()
         return normalized or self._strip_terminal_punctuation(text.strip())
 
     def _truncate_text(self, text: str, max_len: int) -> str:
@@ -648,17 +610,74 @@ class DailyCandidateBuilder:
             return stripped
         return stripped[: max_len - 1].rstrip() + "…"
 
-    def _fetch_builder_signal_payload(self, builder_items: list[ContentItem]) -> dict[str, Any]:
-        payload = self.client.daily_theme_signals(str(self.signal_prompt_path), builder_items)
+    def _decision_prompt_path(self) -> str:
+        return str(self.signal_prompt_path)
+
+    def _copy_prompt_path(self) -> str:
+        return str(self.copy_prompt_path or self.signal_prompt_path)
+
+    def _fetch_builder_decisions(self, builder_items: list[ContentItem]) -> list[dict[str, str]]:
+        payload = self.client.daily_builder_hot_decisions(self._decision_prompt_path(), builder_items)
+        if not isinstance(payload, dict):
+            payload = self.client.daily_theme_signals(self._decision_prompt_path(), builder_items)
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            issues = self._collect_decision_issues(payload)
+            if not issues:
+                break
+            if attempt == max_attempts:
+                break
+            payload = self.client.daily_builder_hot_decisions(self._decision_prompt_path(), builder_items, feedback=issues)
+            if not isinstance(payload, dict):
+                payload = self.client.daily_theme_signals(self._decision_prompt_path(), builder_items, feedback=issues)
+        return [
+            signal
+            for signal in (
+                self._coerce_signal_decision_payload(signal)
+                for signal in (payload or {}).get("signals", [])[: self.builder_candidate_limit]
+            )
+            if signal["content_id"] and signal["url"]
+        ]
+
+    def _fetch_builder_copy_payload(
+        self,
+        builder_items: list[ContentItem],
+        decisions: list[dict[str, str]],
+    ) -> list[dict[str, str]]:
+        if not decisions:
+            return []
+        payload = self.client.daily_builder_hot_copy(self._copy_prompt_path(), builder_items, decisions)
+        if not isinstance(payload, dict):
+            payload = self.client.daily_theme_signals(self._copy_prompt_path(), builder_items)
         max_attempts = 3
         for attempt in range(1, max_attempts + 1):
             issues = self._collect_signal_issues(payload)
             if not issues:
-                return payload
+                break
             if attempt == max_attempts:
-                return payload
-            payload = self.client.daily_theme_signals(str(self.signal_prompt_path), builder_items, feedback=issues)
-        return payload
+                break
+            payload = self.client.daily_builder_hot_copy(
+                self._copy_prompt_path(),
+                builder_items,
+                decisions,
+                feedback=issues,
+            )
+            if not isinstance(payload, dict):
+                payload = self.client.daily_theme_signals(self._copy_prompt_path(), builder_items, feedback=issues)
+        return [self._coerce_signal_payload(signal) for signal in (payload or {}).get("signals", [])[: len(decisions)]]
+
+    def _collect_decision_issues(self, payload: dict[str, Any] | None) -> list[str]:
+        issues: list[str] = []
+        data = payload or {}
+        for index, signal in enumerate(data.get("signals", [])[:10], start=1):
+            decision = self._coerce_signal_decision_payload(signal)
+            if not decision["content_id"]:
+                issues.append(f"Signal {index} missing `content_id`.")
+            if not decision["url"]:
+                issues.append(f"Signal {index} missing `url`.")
+            if not decision["source"]:
+                issues.append(f"Signal {index} missing `source`.")
+        return issues
 
     def _collect_signal_issues(self, payload: dict[str, Any] | None) -> list[str]:
         issues: list[str] = []
@@ -681,31 +700,18 @@ class DailyCandidateBuilder:
                 issues.append(f"`{field}` is truncated; rewrite it as a complete sentence.")
         return issues
 
-    def _repair_signal(self, item: ContentItem, issues: list[str]) -> dict[str, str] | None:
-        payload = self.client.daily_theme_signals(str(self.signal_prompt_path), [item], feedback=issues)
-        signals = payload.get("signals", [])
-        if not signals:
-            return None
-        repaired = self._coerce_signal_payload(signals[0])
-        repaired["content_id"] = item.content_id
-        if item.url:
-            repaired["url"] = item.url
-        if not repaired.get("source"):
-            repaired["source"] = item.author or item.source_name
-        return repaired
-
     def _synthesize_signal_from_item(self, item: ContentItem) -> dict[str, Any] | None:
-        issues = [
-            "rewrite this post into concise natural Chinese.",
-            "`topic_label`, `core_claim`, `excerpt`, and `spotlight_text` must all be complete Chinese sentences or phrases.",
-            "`spotlight_text` must be a concrete factual sentence rather than a vague comment.",
-        ]
-        repaired = self._repair_signal(item, issues)
-        if not repaired:
-            return None
+        source = self._resolve_builder_source(item.author or item.source_name, item, item)
+        decision = {
+            "content_id": item.content_id,
+            "source": source,
+            "url": item.url,
+            "topic_key": item.title[:40].strip() or "Builder 观察",
+        }
+        copy_payloads = self._fetch_builder_copy_payload([item], [decision])
+        repaired = copy_payloads[0] if copy_payloads else self._fallback_builder_copy(item, decision["topic_key"], source)
         if self._collect_single_signal_issues(repaired):
-            return None
-        source = self._resolve_builder_source(repaired.get("source", ""), item, item)
+            repaired = self._fallback_builder_copy(item, decision["topic_key"], source)
         return self._make_builder_hot_candidate(
             content_id=item.content_id,
             source=source,
@@ -721,6 +727,38 @@ class DailyCandidateBuilder:
                 core_claim=repaired["core_claim"],
             ),
         )
+
+    def _fallback_builder_copy(
+        self,
+        item: ContentItem | None,
+        topic_key: str,
+        source: str,
+    ) -> dict[str, str]:
+        raw_excerpt = ""
+        if item is not None:
+            raw_excerpt = (
+                item.ai_summary
+                or str(item.extra_metadata.get("raw_entry", {}).get("content") or "")
+                or item.body
+            ).strip()
+        excerpt = self._truncate_text(raw_excerpt or topic_key or "Builder 观察", 60)
+        spotlight_text = self._resolve_spotlight_text(
+            source=source,
+            spotlight_text=raw_excerpt,
+            excerpt=excerpt,
+            core_claim=excerpt,
+        )
+        topic_label = self._truncate_text(topic_key or (item.title if item else "") or "Builder 观察", 16)
+        return {
+            "content_id": item.content_id if item else "",
+            "source": source,
+            "url": item.url if item else "",
+            "topic_label": topic_label,
+            "core_claim": excerpt,
+            "angle": "补充观察",
+            "excerpt": excerpt,
+            "spotlight_text": spotlight_text or excerpt,
+        }
 
     def _looks_mostly_english(self, text: str) -> bool:
         ascii_letters = len(re.findall(r"[A-Za-z]", text))
@@ -747,15 +785,7 @@ class DailyCandidateBuilder:
         chinese_chars = re.findall(r"[\u4e00-\u9fff]", normalized_text)
         info_units = len(ascii_words) + len(chinese_chars)
 
-        generic_patterns = [
-            "分享链接",
-            "表示不可思议",
-            "感到好笑",
-            "询问",
-            "高度尊重",
-            "怀疑信息泄漏",
-            "调侃",
-        ]
+        generic_patterns = ["分享链接", "表示不可思议", "感到好笑", "询问", "高度尊重", "怀疑信息泛滥", "调侃"]
         combined = " ".join([topic_label, core_claim, excerpt])
         if any(pattern in combined for pattern in generic_patterns):
             return True

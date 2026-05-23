@@ -24,6 +24,7 @@ LOGGER = logging.getLogger(__name__)
 class ThemeAggregator:
     client: DeepSeekClient
     prompt_path: Path
+    copy_prompt_path: Path | None = None
 
     def aggregate_themes(
         self,
@@ -43,34 +44,104 @@ class ThemeAggregator:
             if len(signals) < 3:
                 return self._empty_result(signals, source_by_url, source_by_content_id)
 
-            payload = self.client.daily_themes(
-                str(self.prompt_path),
-                today_items,
-                theme_signals=[self._flatten_builder_signal(signal) for signal in signals],
+            decisions_payload = self._fetch_theme_decisions(today_items, signals)
+            normalized_decisions = self._normalize_decisions(decisions_payload)
+            if not normalized_decisions["themes"]:
+                return self._empty_result(signals, source_by_url, source_by_content_id)
+
+            copy_payload = self._fetch_theme_copy(today_items, signals, normalized_decisions)
+            normalized = self._normalize_copy(
+                copy_payload,
+                normalized_decisions,
+                signals,
+                source_by_url,
+                source_by_content_id,
             )
-            max_attempts = 3
-            for attempt in range(1, max_attempts + 1):
-                issues = self._collect_issues(payload)
-                if not issues:
-                    break
-                if attempt == max_attempts:
-                    LOGGER.warning("Theme aggregation still invalid after %s attempts: %s", attempt, issues)
-                    return self._empty_result(signals, source_by_url, source_by_content_id)
-                LOGGER.info("Theme aggregation failed validation on attempt %s; retrying with feedback: %s", attempt, issues)
-                payload = self.client.daily_themes(
-                    str(self.prompt_path),
-                    today_items,
-                    theme_signals=[self._flatten_builder_signal(signal) for signal in signals],
-                    feedback=issues,
-                )
         except Exception:
             LOGGER.exception("Theme aggregation failed")
             return {"themes": [], "discussion_dispersion": "dispersed", "spotlight_posts": []}
 
-        normalized = self._normalize(payload, source_by_url, source_by_content_id)
         if not normalized.get("themes"):
             return self._empty_result(signals, source_by_url, source_by_content_id)
         return normalized
+
+    def _fetch_theme_decisions(
+        self,
+        today_items: list[ContentItem],
+        signals: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        flattened = [self._flatten_builder_signal(signal) for signal in signals]
+        payload = self.client.daily_theme_decisions(str(self.prompt_path), today_items, theme_signals=flattened)
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            issues = self._collect_decision_issues(payload)
+            if not issues:
+                break
+            if attempt == max_attempts:
+                LOGGER.warning("Theme decision still invalid after %s attempts: %s", attempt, issues)
+                break
+            payload = self.client.daily_theme_decisions(
+                str(self.prompt_path),
+                today_items,
+                theme_signals=flattened,
+                feedback=issues,
+            )
+        return payload
+
+    def _fetch_theme_copy(
+        self,
+        today_items: list[ContentItem],
+        signals: list[dict[str, Any]],
+        normalized_decisions: dict[str, Any],
+    ) -> dict[str, Any]:
+        flattened = [self._flatten_builder_signal(signal) for signal in signals]
+        decision_payload = [
+            {
+                "theme_id": theme["decision"]["theme_id"],
+                "member_content_ids": theme["decision"]["member_content_ids"],
+            }
+            for theme in normalized_decisions["themes"]
+        ]
+        payload = self.client.daily_theme_copy(
+            str(self.copy_prompt_path or self.prompt_path),
+            today_items,
+            decision_payload,
+            theme_signals=flattened,
+        )
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            issues = self._collect_issues(payload)
+            if not issues:
+                break
+            if attempt == max_attempts:
+                LOGGER.warning("Theme copy still invalid after %s attempts: %s", attempt, issues)
+                break
+            payload = self.client.daily_theme_copy(
+                str(self.copy_prompt_path or self.prompt_path),
+                today_items,
+                decision_payload,
+                theme_signals=flattened,
+                feedback=issues,
+            )
+        return payload
+
+    def _collect_decision_issues(self, payload: dict[str, Any] | None) -> list[str]:
+        data = payload or {}
+        seen_members: set[str] = set()
+        issues: list[str] = []
+        for theme_index, theme in enumerate(data.get("themes", [])[:3], start=1):
+            member_ids = [
+                str(content_id).strip()
+                for content_id in theme.get("member_content_ids", [])
+                if str(content_id).strip()
+            ]
+            if len(member_ids) < 3:
+                issues.append(f"Theme {theme_index} must include at least 3 member_content_ids.")
+            for content_id in member_ids:
+                if content_id in seen_members:
+                    issues.append(f"Theme {theme_index} reuses member_content_id {content_id}.")
+                seen_members.add(content_id)
+        return issues
 
     def _collect_issues(self, payload: dict[str, Any] | None) -> list[str]:
         data = payload or {}
@@ -78,7 +149,7 @@ class ThemeAggregator:
         seen_urls: dict[str, int] = {}
 
         for theme_index, theme in enumerate(data.get("themes", [])[:3], start=1):
-            summary = str(theme.get("summary", "")).strip()
+            summary = str(theme.get("theme_summary") or theme.get("summary") or "").strip()
             if summary:
                 if self._looks_mostly_english(summary):
                     issues.append(f"Theme {theme_index} summary must be written in Chinese.")
@@ -113,70 +184,84 @@ class ThemeAggregator:
 
             for source, count in source_counter.items():
                 if count > 1:
-                    issues.append(
-                        f"Theme {theme_index} repeats source {source} {count} times; merge if they do not add distinct evidence."
-                    )
+                    issues.append(f"Theme {theme_index} repeats source {source} {count} times; merge if redundant.")
             if summary:
                 for evidence_index, excerpt in enumerate(evidence_excerpts, start=1):
                     if self._is_summary_too_similar_to_evidence(summary, excerpt):
                         issues.append(
-                            f"Theme {theme_index} summary is too similar to evidence {evidence_index}; summarize the pattern instead of repeating one post."
+                            f"Theme {theme_index} summary is too similar to evidence {evidence_index}; summarize the pattern instead."
                         )
                         break
         return issues
 
-    def _normalize(
-        self,
-        payload: dict[str, Any] | None,
-        source_by_url: dict[str, str],
-        source_by_content_id: dict[str, str],
-    ) -> dict[str, Any]:
+    def _normalize_decisions(self, payload: dict[str, Any] | None) -> dict[str, Any]:
         data = payload or {}
-        themes: list[dict[str, Any]] = []
-        for theme in data.get("themes", [])[:3]:
-            related_content_ids = [
+        dispersion = str(data.get("discussion_dispersion", "dispersed")).strip() or "dispersed"
+        themes = []
+        for index, theme in enumerate(data.get("themes", [])[:3], start=1):
+            member_content_ids = [
                 str(content_id).strip()
-                for content_id in theme.get("related_content_ids", [])
+                for content_id in theme.get("member_content_ids", [])
                 if str(content_id).strip()
             ]
-            evidence_payloads = []
-            for entry in theme.get("evidence", [])[:4]:
-                excerpt = str(entry.get("excerpt", "")).strip()
-                if not excerpt:
-                    continue
-                url = str(entry.get("url", "")).strip()
-                evidence_payloads.append(
-                    {
-                        "source": self._resolve_source_name(
-                            str(entry.get("source", "")).strip(),
-                            url,
-                            related_content_ids,
-                            source_by_url,
-                            source_by_content_id,
-                        ),
-                        "excerpt": excerpt,
-                        "url": url,
-                    }
-                )
+            if len(member_content_ids) < 3:
+                continue
             themes.append(
                 normalize_theme(
                     {
                         "decision": {
-                            "theme_id": str(theme.get("theme_id", "")).strip(),
-                            "member_content_ids": related_content_ids,
-                            "representative_urls": [item["url"] for item in evidence_payloads if item.get("url")],
-                            "discussion_dispersion": str(data.get("discussion_dispersion", "dispersed")).strip()
-                            or "dispersed",
+                            "theme_id": str(theme.get("theme_id", "")).strip() or f"theme_{index}",
+                            "member_content_ids": member_content_ids,
+                            "representative_urls": [],
+                            "discussion_dispersion": dispersion,
                         },
                         "copy": {
-                            "theme_title": str(theme.get("theme", "Unnamed theme")).strip() or "Unnamed theme",
-                            "theme_summary": str(theme.get("summary", "")).strip(),
-                            "evidence": evidence_payloads,
+                            "theme_title": "",
+                            "theme_summary": "",
+                            "evidence": [],
                         },
                     }
                 )
             )
-        dispersion = str(data.get("discussion_dispersion", "dispersed")).strip() or "dispersed"
+        if not themes:
+            dispersion = "dispersed"
+        return {
+            "themes": themes,
+            "discussion_dispersion": dispersion,
+        }
+
+    def _normalize_copy(
+        self,
+        payload: dict[str, Any] | None,
+        normalized_decisions: dict[str, Any],
+        signals: list[dict[str, Any]],
+        source_by_url: dict[str, str],
+        source_by_content_id: dict[str, str],
+    ) -> dict[str, Any]:
+        signal_by_content_id = {
+            builder_candidate_decision(signal).get("content_id", ""): signal
+            for signal in signals
+            if builder_candidate_decision(signal).get("content_id")
+        }
+        raw_copy_by_theme_id: dict[str, dict[str, Any]] = {}
+        for index, theme in enumerate((payload or {}).get("themes", [])[:3], start=1):
+            theme_id = str(theme.get("theme_id", "")).strip() or f"theme_{index}"
+            raw_copy_by_theme_id[theme_id] = theme
+
+        themes: list[dict[str, Any]] = []
+        for decision_theme in normalized_decisions["themes"]:
+            decision = decision_theme["decision"]
+            copy_payload = raw_copy_by_theme_id.get(decision["theme_id"], {})
+            normalized = self._build_theme_from_decision(
+                decision=decision,
+                copy_payload=copy_payload,
+                signal_by_content_id=signal_by_content_id,
+                source_by_url=source_by_url,
+                source_by_content_id=source_by_content_id,
+            )
+            themes.append(normalized)
+
+        dispersion = normalized_decisions["discussion_dispersion"]
         if not themes:
             dispersion = "dispersed"
         return {
@@ -185,6 +270,99 @@ class ThemeAggregator:
             "spotlight_posts": [],
             "supplementary_spotlight_posts": [],
         }
+
+    def _build_theme_from_decision(
+        self,
+        *,
+        decision: dict[str, Any],
+        copy_payload: dict[str, Any],
+        signal_by_content_id: dict[str, dict[str, Any]],
+        source_by_url: dict[str, str],
+        source_by_content_id: dict[str, str],
+    ) -> dict[str, Any]:
+        member_content_ids = list(decision.get("member_content_ids", []))
+        fallback_evidence = self._fallback_theme_evidence(member_content_ids, signal_by_content_id)
+        evidence_payloads = []
+        for entry in copy_payload.get("evidence", [])[:4]:
+            excerpt = str(entry.get("excerpt", "")).strip()
+            if not excerpt:
+                continue
+            url = str(entry.get("url", "")).strip()
+            evidence_payloads.append(
+                {
+                    "source": self._resolve_source_name(
+                        str(entry.get("source", "")).strip(),
+                        url,
+                        member_content_ids,
+                        source_by_url,
+                        source_by_content_id,
+                    ),
+                    "excerpt": excerpt,
+                    "url": url,
+                }
+            )
+        if not evidence_payloads:
+            evidence_payloads = fallback_evidence
+
+        fallback_title, fallback_summary = self._fallback_theme_copy(member_content_ids, signal_by_content_id)
+        theme_title = str(copy_payload.get("theme_title") or copy_payload.get("theme") or "").strip() or fallback_title
+        theme_summary = str(copy_payload.get("theme_summary") or copy_payload.get("summary") or "").strip() or fallback_summary
+        return normalize_theme(
+            {
+                "decision": {
+                    "theme_id": decision["theme_id"],
+                    "member_content_ids": member_content_ids,
+                    "representative_urls": [item["url"] for item in evidence_payloads if item.get("url")],
+                    "discussion_dispersion": decision["discussion_dispersion"],
+                },
+                "copy": {
+                    "theme_title": theme_title,
+                    "theme_summary": theme_summary,
+                    "evidence": evidence_payloads,
+                },
+            }
+        )
+
+    def _fallback_theme_copy(
+        self,
+        member_content_ids: list[str],
+        signal_by_content_id: dict[str, dict[str, Any]],
+    ) -> tuple[str, str]:
+        topic_labels: list[str] = []
+        core_claims: list[str] = []
+        for content_id in member_content_ids:
+            signal = signal_by_content_id.get(content_id)
+            if not signal:
+                continue
+            copy = builder_candidate_copy(signal)
+            if copy.get("topic_label"):
+                topic_labels.append(str(copy["topic_label"]))
+            if copy.get("core_claim"):
+                core_claims.append(str(copy["core_claim"]))
+        title = topic_labels[0] if topic_labels else "Builder 热议"
+        summary = core_claims[0] if core_claims else "多位 builder 围绕同一件事形成了集中讨论。"
+        return title, summary
+
+    def _fallback_theme_evidence(
+        self,
+        member_content_ids: list[str],
+        signal_by_content_id: dict[str, dict[str, Any]],
+    ) -> list[dict[str, str]]:
+        evidence_payloads: list[dict[str, str]] = []
+        for content_id in member_content_ids[:4]:
+            signal = signal_by_content_id.get(content_id)
+            if not signal:
+                continue
+            decision = builder_candidate_decision(signal)
+            copy = builder_candidate_copy(signal)
+            evidence_payloads.append(
+                {
+                    "source": str(decision.get("source", "")).strip(),
+                    "excerpt": str(copy.get("excerpt") or copy.get("core_claim") or "").strip(),
+                    "url": str(decision.get("url", "")).strip(),
+                }
+            )
+        return [entry for entry in evidence_payloads if entry["excerpt"]]
 
     def _empty_result(
         self,
@@ -208,10 +386,7 @@ class ThemeAggregator:
             for signal in (signals or [])[:10]
             if builder_candidate_decision(signal).get("source")
             and builder_candidate_decision(signal).get("url")
-            and (
-                builder_candidate_copy(signal).get("spotlight_text")
-                or builder_candidate_copy(signal).get("core_claim")
-            )
+            and (builder_candidate_copy(signal).get("spotlight_text") or builder_candidate_copy(signal).get("core_claim"))
         ]
         return {
             "themes": [],

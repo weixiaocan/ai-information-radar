@@ -45,13 +45,19 @@ class Pipeline:
         self.daily_builder = DailyDigestBuilder()
         self.daily_candidate_builder = DailyCandidateBuilder(
             self.client,
-            settings.project_root / "prompts" / "theme_signal_extractor.md",
+            settings.project_root / "prompts" / "builder_hot_decision.md",
+            copy_prompt_path=settings.project_root / "prompts" / "builder_hot_copy.md",
         )
         self.theme_aggregator = ThemeAggregator(
             self.client,
-            settings.project_root / "prompts" / "theme_aggregator.md",
+            settings.project_root / "prompts" / "theme_decision.md",
+            copy_prompt_path=settings.project_root / "prompts" / "theme_copy.md",
         )
-        self.daily_curator = DailyCurator(self.client, settings.project_root / "prompts" / "daily_curator.md")
+        self.daily_curator = DailyCurator(
+            self.client,
+            settings.project_root / "prompts" / "selection_decision.md",
+            copy_prompt_path=settings.project_root / "prompts" / "selection_copy.md",
+        )
         self.daily_decision_resolver = DailyDecisionResolver()
         self.weekly_builder = WeeklyDigestBuilder(
             self.client,

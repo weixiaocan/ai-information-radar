@@ -111,9 +111,9 @@ class DeepSeekClient:
         if issues:
             retry_prompt = (
                 prompt
-                + "\n\n【上一版输出存在以下问题，请严格修正后重写】\n- "
+                + "\n\n上一版输出存在以下问题，请严格修正后重写。\n- "
                 + "\n- ".join(issues)
-                + "\n输出语言必须是中文；保留三段结构，并包含 2-3 个以「• 」开头的 bullets。"
+                + "\n输出语言必须是中文；保留三段结构，并包含 2-3 个以「-」开头的 bullets。"
             )
             retry_result = self._chat_completion(retry_prompt, model="deepseek-chat", temperature=0.4, max_tokens=1400)
             pitch = self._coerce_pitch_text(retry_result)
@@ -141,9 +141,9 @@ class DeepSeekClient:
         if issues:
             retry_prompt = (
                 prompt
-                + "\n\n【上一版输出存在以下问题，请严格修正后重写完整 JSON】\n- "
+                + "\n\n上一版输出存在以下问题，请严格修正后重写完整 JSON。\n- "
                 + "\n- ".join(issues)
-                + "\n请保证 themes 数量、summary 中文质量、highlight 字段完整性都符合要求。"
+                + "\n请确保 themes 数量、summary 中文质量、highlight 字段完整性都符合要求。"
             )
             payload = self._chat_completion_json(retry_prompt, model="deepseek-chat", max_tokens=2800)
         return payload
@@ -155,29 +155,46 @@ class DeepSeekClient:
         feedback: list[str] | None = None,
     ) -> dict[str, Any]:
         prompt_template = load_prompt(Path(prompt_path))
-        builder_posts = [
-            {
-                "content_id": item.content_id,
-                "author": item.author or item.source_name,
-                "title": item.title,
-                "ai_summary": item.ai_summary or "",
-                "body": item.body[:1200],
-                "url": item.url,
-            }
-            for item in items
-            if item.source_type == "zara_x"
-        ]
+        builder_posts = self._build_builder_posts(items, body_limit=1200, include_summary=True)
         prompt = prompt_template.format(
             n_posts=len(builder_posts),
             builder_posts=json.dumps(builder_posts, ensure_ascii=False, indent=2),
         )
         if feedback:
-            prompt += (
-                "\n\n【上一版输出存在以下问题，请严格修正后重写完整 JSON】\n- "
-                + "\n- ".join(feedback)
-                + "\n请保留同样的 JSON 结构；`topic_label`、`core_claim`、`excerpt`、`spotlight_text` 都必须是自然中文。"
-                "\n除专有名词外，不要直接输出英文原帖；不要截断句子；`spotlight_text` 必须是一句完整中文事实句。"
-            )
+            prompt += "\n\n上一版输出存在以下问题，请修正后重写完整 JSON。\n- " + "\n- ".join(feedback)
+        return self._chat_completion_json(prompt, model="deepseek-chat", max_tokens=2200)
+
+    def daily_builder_hot_decisions(
+        self,
+        prompt_path: str,
+        items: list[ContentItem],
+        feedback: list[str] | None = None,
+    ) -> dict[str, Any]:
+        prompt_template = load_prompt(Path(prompt_path))
+        builder_posts = self._build_builder_posts(items, body_limit=1200, include_summary=True)
+        prompt = prompt_template.format(
+            n_posts=len(builder_posts),
+            builder_posts=json.dumps(builder_posts, ensure_ascii=False, indent=2),
+        )
+        if feedback:
+            prompt += "\n\n上一版输出存在以下问题，请修正后重写完整 JSON。\n- " + "\n- ".join(feedback)
+        return self._chat_completion_json(prompt, model="deepseek-chat", max_tokens=1800)
+
+    def daily_builder_hot_copy(
+        self,
+        prompt_path: str,
+        items: list[ContentItem],
+        accepted_signals: list[dict[str, Any]],
+        feedback: list[str] | None = None,
+    ) -> dict[str, Any]:
+        prompt_template = load_prompt(Path(prompt_path))
+        builder_posts = self._build_builder_posts(items, body_limit=1200, include_summary=True)
+        prompt = prompt_template.format(
+            accepted_signals_json=json.dumps(accepted_signals, ensure_ascii=False, indent=2),
+            builder_posts=json.dumps(builder_posts, ensure_ascii=False, indent=2),
+        )
+        if feedback:
+            prompt += "\n\n上一版输出存在以下问题，请修正后重写完整 JSON。\n- " + "\n- ".join(feedback)
         return self._chat_completion_json(prompt, model="deepseek-chat", max_tokens=2200)
 
     def daily_themes(
@@ -188,29 +205,52 @@ class DeepSeekClient:
         feedback: list[str] | None = None,
     ) -> dict[str, Any]:
         prompt_template = load_prompt(Path(prompt_path))
-        builder_posts = [
-            {
-                "content_id": item.content_id,
-                "author": item.author or item.source_name,
-                "title": item.title,
-                "body": item.body[:600],
-                "url": item.url,
-            }
-            for item in items
-            if item.source_type == "zara_x"
-        ]
+        builder_posts = self._build_builder_posts(items, body_limit=600, include_summary=False)
         prompt = prompt_template.format(
             n_posts=len(builder_posts),
             builder_posts=json.dumps(builder_posts, ensure_ascii=False, indent=2),
             theme_signals_json=json.dumps(theme_signals or [], ensure_ascii=False, indent=2),
         )
         if feedback:
-            prompt += (
-                "\n\n【上一版输出存在以下问题，请严格修正后重写完整 JSON】\n- "
-                + "\n- ".join(feedback)
-                + "\n请不要只修一部分；重写完整输出，并确保 summary 和 excerpt 都是自然中文。"
-            )
+            prompt += "\n\n上一版输出存在以下问题，请修正后重写完整 JSON。\n- " + "\n- ".join(feedback)
         return self._chat_completion_json(prompt, model="deepseek-chat", max_tokens=2000)
+
+    def daily_theme_decisions(
+        self,
+        prompt_path: str,
+        items: list[ContentItem],
+        theme_signals: list[dict[str, str]] | None = None,
+        feedback: list[str] | None = None,
+    ) -> dict[str, Any]:
+        prompt_template = load_prompt(Path(prompt_path))
+        builder_posts = self._build_builder_posts(items, body_limit=600, include_summary=False)
+        prompt = prompt_template.format(
+            n_posts=len(builder_posts),
+            builder_posts=json.dumps(builder_posts, ensure_ascii=False, indent=2),
+            theme_signals_json=json.dumps(theme_signals or [], ensure_ascii=False, indent=2),
+        )
+        if feedback:
+            prompt += "\n\n上一版输出存在以下问题，请修正后重写完整 JSON。\n- " + "\n- ".join(feedback)
+        return self._chat_completion_json(prompt, model="deepseek-chat", max_tokens=1800)
+
+    def daily_theme_copy(
+        self,
+        prompt_path: str,
+        items: list[ContentItem],
+        decided_themes: list[dict[str, Any]],
+        theme_signals: list[dict[str, str]] | None = None,
+        feedback: list[str] | None = None,
+    ) -> dict[str, Any]:
+        prompt_template = load_prompt(Path(prompt_path))
+        builder_posts = self._build_builder_posts(items, body_limit=600, include_summary=False)
+        prompt = prompt_template.format(
+            builder_posts=json.dumps(builder_posts, ensure_ascii=False, indent=2),
+            theme_signals_json=json.dumps(theme_signals or [], ensure_ascii=False, indent=2),
+            decided_themes_json=json.dumps(decided_themes, ensure_ascii=False, indent=2),
+        )
+        if feedback:
+            prompt += "\n\n上一版输出存在以下问题，请修正后重写完整 JSON。\n- " + "\n- ".join(feedback)
+        return self._chat_completion_json(prompt, model="deepseek-chat", max_tokens=2200)
 
     def daily_selections(
         self,
@@ -219,23 +259,48 @@ class DeepSeekClient:
         exclude_ids: set[str],
     ) -> dict[str, Any]:
         prompt_template = load_prompt(Path(prompt_path))
+        candidates = self._build_selection_candidates(items)
+        prompt = prompt_template.format(
+            exclude_content_ids=json.dumps(sorted(exclude_ids), ensure_ascii=False, indent=2),
+            candidates_json=json.dumps(candidates, ensure_ascii=False, indent=2),
+        )
+        return self._chat_completion_json(prompt, model="deepseek-chat", max_tokens=1600)
+
+    def daily_selection_decisions(
+        self,
+        prompt_path: str,
+        items: list[ContentItem],
+        exclude_ids: set[str],
+    ) -> dict[str, Any]:
+        prompt_template = load_prompt(Path(prompt_path))
+        candidates = self._build_selection_candidates(items)
+        prompt = prompt_template.format(
+            exclude_content_ids=json.dumps(sorted(exclude_ids), ensure_ascii=False, indent=2),
+            candidates_json=json.dumps(candidates, ensure_ascii=False, indent=2),
+        )
+        return self._chat_completion_json(prompt, model="deepseek-chat", max_tokens=1200)
+
+    def daily_selection_copy(
+        self,
+        prompt_path: str,
+        items: list[ContentItem],
+        selected_indexes: list[int],
+        exclude_ids: set[str],
+        feedback: list[str] | None = None,
+    ) -> dict[str, Any]:
+        prompt_template = load_prompt(Path(prompt_path))
+        selected_index_set = set(selected_indexes)
         candidates = [
-            {
-                "candidate_index": index,
-                "type": "youtube" if item.source_type == "youtube" else "article",
-                "channel_or_source": get_original_source_name(item),
-                "title": item.title,
-                "url": item.url,
-                "summary": item.ai_summary or item.body[:240],
-                "keywords": item.ai_keywords,
-            }
-            for index, item in enumerate(items, start=1)
-            if item.source_type != "zara_x"
+            candidate
+            for candidate in self._build_selection_candidates(items)
+            if candidate["candidate_index"] in selected_index_set
         ]
         prompt = prompt_template.format(
             exclude_content_ids=json.dumps(sorted(exclude_ids), ensure_ascii=False, indent=2),
             candidates_json=json.dumps(candidates, ensure_ascii=False, indent=2),
         )
+        if feedback:
+            prompt += "\n\n上一版输出存在以下问题，请修正后重写完整 JSON。\n- " + "\n- ".join(feedback)
         return self._chat_completion_json(prompt, model="deepseek-chat", max_tokens=1600)
 
     def ebook_report(self, prompt_path: str, item: ContentItem, rank: int) -> str:
@@ -305,11 +370,7 @@ class DeepSeekClient:
                 last_error = exc
                 if attempt >= attempts:
                     raise
-                LOGGER.warning(
-                    "Model returned invalid JSON on attempt %s/%s; retrying once",
-                    attempt,
-                    attempts,
-                )
+                LOGGER.warning("Model returned invalid JSON on attempt %s/%s; retrying once", attempt, attempts)
                 continue
             if isinstance(payload, dict):
                 return payload
@@ -324,13 +385,51 @@ class DeepSeekClient:
             return str(data.get("pitch") or data.get("content") or json.dumps(data, ensure_ascii=False))
         return str(data)
 
+    def _build_builder_posts(
+        self,
+        items: list[ContentItem],
+        *,
+        body_limit: int,
+        include_summary: bool,
+    ) -> list[dict[str, Any]]:
+        builder_posts = []
+        for item in items:
+            if item.source_type != "zara_x":
+                continue
+            payload = {
+                "content_id": item.content_id,
+                "author": item.author or item.source_name,
+                "title": item.title,
+                "body": item.body[:body_limit],
+                "url": item.url,
+            }
+            if include_summary:
+                payload["ai_summary"] = item.ai_summary or ""
+            builder_posts.append(payload)
+        return builder_posts
+
+    def _build_selection_candidates(self, items: list[ContentItem]) -> list[dict[str, Any]]:
+        return [
+            {
+                "candidate_index": index,
+                "type": "youtube" if item.source_type == "youtube" else "article",
+                "channel_or_source": get_original_source_name(item),
+                "title": item.title,
+                "url": item.url,
+                "summary": item.ai_summary or item.body[:240],
+                "keywords": item.ai_keywords,
+            }
+            for index, item in enumerate(items, start=1)
+            if item.source_type != "zara_x"
+        ]
+
     def _collect_weekly_pitch_issues(self, pitch: str) -> list[str]:
         issues: list[str] = []
         if self._looks_mostly_english(pitch):
             issues.append("输出不是中文，请全部改成中文，只有专有名词保留英文")
-        bullet_count = pitch.count("• ")
+        bullet_count = pitch.count("- ")
         if bullet_count < 2:
-            issues.append("第二段缺少 2-3 个以「• 」开头的 bullets")
+            issues.append("第二段缺少 2-3 个以「-」开头的 bullets")
         paragraph_count = len([part for part in pitch.split("\n\n") if part.strip()])
         if paragraph_count < 3:
             issues.append("没有按三段结构输出，请用空行分成三段")
