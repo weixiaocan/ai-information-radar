@@ -75,6 +75,36 @@ class ThemeAggregatorValidationTest(unittest.TestCase):
         )
         self.assertTrue(any("repeats source Peter Steinberger 2 times" in issue for issue in issues))
 
+    def test_collect_issues_flags_summary_that_repeats_evidence(self) -> None:
+        aggregator = self._make_aggregator()
+        issues = aggregator._collect_issues(
+            {
+                "themes": [
+                    {
+                        "summary": "Aaron Levie指出AI从廉价聊天工具发展到昂贵代理，推理成本大幅上升。",
+                        "evidence": [
+                            {
+                                "source": "Aaron Levie",
+                                "excerpt": "Aaron Levie称AI从廉价聊天工具发展到具有大上下文窗口的代理，推理成本大幅上升。",
+                                "url": "https://x.com/1",
+                            },
+                            {
+                                "source": "Garry Tan",
+                                "excerpt": "Garry Tan提到每个人都应拥有一个带GBrain的智能体。",
+                                "url": "https://x.com/2",
+                            },
+                            {
+                                "source": "Zara Zhang",
+                                "excerpt": "该工具允许用户在飞书中像同事一样与Claude Code对话。",
+                                "url": "https://x.com/3",
+                            },
+                        ],
+                    }
+                ]
+            }
+        )
+        self.assertTrue(any("summary is too similar to evidence 1" in issue for issue in issues))
+
     def test_empty_result_prefers_spotlight_text(self) -> None:
         aggregator = self._make_aggregator()
         payload = aggregator._empty_result(

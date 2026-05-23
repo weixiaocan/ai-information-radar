@@ -77,6 +77,35 @@ class DailyDigestBuilderTest(unittest.TestCase):
         self.assertIn("值得看的 1 条 builder 帖子", spotlight_header)
         self.assertIn("[**Aaron Levie**](https://x.com/levie/status/1)", spotlight_line)
 
+    def test_daily_digest_hides_evidence_that_repeats_theme_summary(self) -> None:
+        payload = DailyDigestBuilder().build(
+            themes_data={
+                "themes": [
+                    {
+                        "theme": "AI代理成本分层趋势",
+                        "summary": "Aaron Levie指出AI从廉价聊天工具发展到昂贵代理，推理成本大幅上升。",
+                        "evidence": [
+                            {
+                                "source": "Aaron Levie",
+                                "excerpt": "Aaron Levie称AI从廉价聊天工具发展到具有大上下文窗口的代理，推理成本大幅上升。",
+                                "url": "https://x.com/1",
+                            },
+                            {
+                                "source": "Garry Tan",
+                                "excerpt": "Garry Tan表示每个人都应拥有一个带GBrain的智能体。",
+                                "url": "https://x.com/2",
+                            },
+                        ],
+                    }
+                ]
+            },
+            selections_data={"selections": []},
+            stats={"total": 2},
+        )
+        theme_text = payload["card"]["elements"][1]["text"]["content"]
+        self.assertNotIn("https://x.com/1", theme_text)
+        self.assertIn("https://x.com/2", theme_text)
+
     def test_fallback_display_name_title_cases_source_name(self) -> None:
         builder = DailyDigestBuilder()
         self.assertEqual(builder._fallback_display_name("foo_bar_baz"), "Foo Bar Baz")

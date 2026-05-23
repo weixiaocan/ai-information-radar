@@ -43,9 +43,13 @@ class DailyDigestBuilder:
         if themes:
             elements.append({"tag": "div", "text": {"tag": "lark_md", "content": f"**🌡️ 今日热议（{len(themes)} 个主题）**"}})
             for theme in themes:
+                visible_evidence = self._dedupe_theme_evidence_against_summary(
+                    str(theme.get("summary", "")).strip(),
+                    theme.get("evidence", []),
+                )
                 evidence_lines = "\n".join(
                     self._render_evidence_line(evidence)
-                    for evidence in theme.get("evidence", [])[:4]
+                    for evidence in visible_evidence[:4]
                     if evidence.get("excerpt")
                 )
                 summary = self._strip_terminal_punctuation(str(theme.get("summary", "")).strip())
@@ -158,13 +162,17 @@ class DailyDigestBuilder:
         lines.append("")
         if themes:
             for theme in themes:
+                visible_evidence = self._dedupe_theme_evidence_against_summary(
+                    str(theme.get("summary", "")).strip(),
+                    theme.get("evidence", []),
+                )
                 lines.append(f"### ▎{theme.get('theme', '未命名主题')}")
                 lines.append("")
                 summary = self._strip_terminal_punctuation(str(theme.get("summary", "")).strip())
                 if summary:
                     lines.append(summary)
                     lines.append("")
-                for evidence in theme.get("evidence", [])[:4]:
+                for evidence in visible_evidence[:4]:
                     if str(evidence.get("excerpt", "")).strip():
                         lines.append(self._render_markdown_evidence_line(evidence))
                 lines.append("")
@@ -456,6 +464,41 @@ class DailyDigestBuilder:
         url = str(evidence.get("url", "")).strip()
         source_md = f"[**{source}**]({url})" if url else f"**{source}**"
         return f"- {self._source_icon('builder')} {source_md}：{excerpt}"
+
+    def _dedupe_theme_evidence_against_summary(
+        self,
+        summary: str,
+        evidence_items: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        filtered: list[dict[str, Any]] = []
+        skipped_similar = False
+        for evidence in evidence_items:
+            excerpt = str(evidence.get("excerpt", "")).strip()
+            if not skipped_similar and self._is_text_too_similar(summary, excerpt):
+                skipped_similar = True
+                continue
+            filtered.append(evidence)
+        return filtered
+
+    def _is_text_too_similar(self, left: str, right: str) -> bool:
+        left_norm = self._normalize_similarity_text(left)
+        right_norm = self._normalize_similarity_text(right)
+        if not left_norm or not right_norm:
+            return False
+        if left_norm == right_norm:
+            return True
+        left_tokens = set(left_norm.split())
+        right_tokens = set(right_norm.split())
+        if not left_tokens or not right_tokens:
+            return False
+        overlap = len(left_tokens & right_tokens) / min(len(left_tokens), len(right_tokens))
+        return overlap >= 0.75
+
+    def _normalize_similarity_text(self, text: str) -> str:
+        normalized = re.sub(r"[^\u4e00-\u9fffA-Za-z0-9]+", " ", text.lower())
+        normalized = re.sub(r"\b[a-z]{1,3}\b", " ", normalized)
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        return normalized
 
     def _render_spotlight_line(self, post: dict[str, Any]) -> str:
         source = str(post.get("source", "未知来源")).strip() or "未知来源"

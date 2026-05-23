@@ -80,6 +80,7 @@ class ThemeAggregator:
                     issues.append(f"Theme {theme_index} summary is overloaded; compress it to one core idea.")
 
             source_counter: Counter[str] = Counter()
+            evidence_excerpts: list[str] = []
             for evidence_index, evidence in enumerate(theme.get("evidence", [])[:4], start=1):
                 source = str(evidence.get("source", "")).strip()
                 excerpt = str(evidence.get("excerpt", "")).strip()
@@ -93,6 +94,7 @@ class ThemeAggregator:
                     issues.append(f"Theme {theme_index} evidence {evidence_index} must be written in Chinese.")
                 if len(excerpt) > 60:
                     issues.append(f"Theme {theme_index} evidence {evidence_index} is too long; keep it within 60 chars.")
+                evidence_excerpts.append(excerpt)
                 if not url:
                     issues.append(f"Theme {theme_index} evidence {evidence_index} is missing the original url.")
                     continue
@@ -108,6 +110,13 @@ class ThemeAggregator:
                     issues.append(
                         f"Theme {theme_index} repeats source {source} {count} times; merge if they do not add distinct evidence."
                     )
+            if summary:
+                for evidence_index, excerpt in enumerate(evidence_excerpts, start=1):
+                    if self._is_summary_too_similar_to_evidence(summary, excerpt):
+                        issues.append(
+                            f"Theme {theme_index} summary is too similar to evidence {evidence_index}; summarize the pattern instead of repeating one post."
+                        )
+                        break
         return issues
 
     def _normalize(
@@ -217,3 +226,23 @@ class ThemeAggregator:
         ascii_letters = len(re.findall(r"[A-Za-z]", text))
         chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", text))
         return ascii_letters >= 12 and ascii_letters > chinese_chars
+
+    def _is_summary_too_similar_to_evidence(self, summary: str, excerpt: str) -> bool:
+        summary_norm = self._normalize_similarity_text(summary)
+        excerpt_norm = self._normalize_similarity_text(excerpt)
+        if not summary_norm or not excerpt_norm:
+            return False
+        if summary_norm == excerpt_norm:
+            return True
+        summary_tokens = set(summary_norm.split())
+        excerpt_tokens = set(excerpt_norm.split())
+        if not summary_tokens or not excerpt_tokens:
+            return False
+        overlap = len(summary_tokens & excerpt_tokens) / min(len(summary_tokens), len(excerpt_tokens))
+        return overlap >= 0.75
+
+    def _normalize_similarity_text(self, text: str) -> str:
+        normalized = re.sub(r"[^\u4e00-\u9fffA-Za-z0-9]+", " ", text.lower())
+        normalized = re.sub(r"\b[a-z]{1,3}\b", " ", normalized)
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        return normalized
