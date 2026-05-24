@@ -149,6 +149,14 @@ def _normalize_heading_text(heading: str, report_type: str) -> str:
     return re.sub(r"\bAI Radar\s*周报\s*·\s*", "AI Brief · ", heading, count=1)
 
 
+def _normalize_heading_text(heading: str, report_type: str) -> str:
+    if report_type == "daily":
+        return re.sub(r"\bAI Radar\b", "AI Brief", heading, count=1)
+    normalized = re.sub(r"\bAI Radar\s*周报\s*·\s*", "AI Brief · ", heading, count=1)
+    normalized = re.sub(r"\bAI Radar\s*鍛ㄦ姤\s*路\s*", "AI Brief 路 ", normalized, count=1)
+    return re.sub(r"第\s*(\d+)\s*周", r"第 \1 周", normalized)
+
+
 def _transform_daily_lines(lines: list[str]) -> str:
     output: list[str] = []
     index = 0
