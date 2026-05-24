@@ -27,6 +27,12 @@ class DailyDigestBuilder:
     def __init__(self) -> None:
         self.display_name_map = self._load_display_name_map()
 
+    def _strip_leading_punctuation(self, text: str) -> str:
+        return re.sub(r"^[,，:：;；、\.\s]+", "", text).strip()
+
+    def _sanitize_link_label(self, text: str) -> str:
+        return text.replace("<", "&lt;").replace(">", "&gt;")
+
     def build(
         self,
         themes_data: dict[str, Any] | None,
@@ -471,14 +477,14 @@ class DailyDigestBuilder:
 
     def _render_evidence_line(self, evidence: dict[str, Any]) -> str:
         source = str(evidence.get("source", "未知来源")).strip() or "未知来源"
-        excerpt = self._strip_terminal_punctuation(str(evidence.get("excerpt", "")).strip())
+        excerpt = self._strip_leading_punctuation(self._strip_terminal_punctuation(str(evidence.get("excerpt", "")).strip()))
         url = str(evidence.get("url", "")).strip()
         source_md = f"[**{source}**]({url})" if url else f"**{source}**"
         return f"• {self._source_icon('builder')} {source_md}：{excerpt}"
 
     def _render_markdown_evidence_line(self, evidence: dict[str, Any]) -> str:
         source = str(evidence.get("source", "未知来源")).strip() or "未知来源"
-        excerpt = self._strip_terminal_punctuation(str(evidence.get("excerpt", "")).strip())
+        excerpt = self._strip_leading_punctuation(self._strip_terminal_punctuation(str(evidence.get("excerpt", "")).strip()))
         url = str(evidence.get("url", "")).strip()
         source_md = f"[**{source}**]({url})" if url else f"**{source}**"
         return f"- {self._source_icon('builder')} {source_md}：{excerpt}"
@@ -525,14 +531,14 @@ class DailyDigestBuilder:
 
     def _render_spotlight_line(self, post: dict[str, Any]) -> str:
         source = str(post.get("source", "未知来源")).strip() or "未知来源"
-        text = self._strip_terminal_punctuation(str(post.get("text", "")).strip())
+        text = self._strip_leading_punctuation(self._strip_terminal_punctuation(str(post.get("text", "")).strip()))
         url = str(post.get("url", "")).strip()
         source_md = f"[**{source}**]({url})" if url else f"**{source}**"
         return f"• {self._source_icon('builder')} {source_md}：{text}"
 
     def _render_markdown_spotlight_line(self, post: dict[str, Any]) -> str:
         source = str(post.get("source", "未知来源")).strip() or "未知来源"
-        text = self._strip_terminal_punctuation(str(post.get("text", "")).strip())
+        text = self._strip_leading_punctuation(self._strip_terminal_punctuation(str(post.get("text", "")).strip()))
         url = str(post.get("url", "")).strip()
         source_md = f"[**{source}**]({url})" if url else f"**{source}**"
         return f"- {self._source_icon('builder')} {source_md}：{text}"
@@ -543,7 +549,7 @@ class DailyDigestBuilder:
         icon = self._source_icon(str(decision.get("type", "article")).strip().lower())
         source_name = str(decision.get("channel_or_source", "未知来源")).strip() or "未知来源"
         display_name = self._get_display_name(source_name)
-        title = str(decision.get("title", "Untitled")).strip() or "Untitled"
+        title = self._sanitize_link_label(str(decision.get("title", "Untitled")).strip() or "Untitled")
         url = str(decision.get("url", "")).strip()
         value_pitch = self._strip_terminal_punctuation(str(copy.get("value_pitch", "")).strip())
         return f"{icon} **{display_name}**\n[{title}]({url})\n{value_pitch}"
@@ -554,7 +560,7 @@ class DailyDigestBuilder:
         icon = self._source_icon(str(decision.get("type", "article")).strip().lower())
         source_name = str(decision.get("channel_or_source", "未知来源")).strip() or "未知来源"
         display_name = self._get_display_name(source_name)
-        title = str(decision.get("title", "Untitled")).strip() or "Untitled"
+        title = self._sanitize_link_label(str(decision.get("title", "Untitled")).strip() or "Untitled")
         url = str(decision.get("url", "")).strip()
         value_pitch = self._strip_terminal_punctuation(str(copy.get("value_pitch", "")).strip())
         return [f"{icon} **{display_name}**", f"[{title}]({url})", value_pitch]

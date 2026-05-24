@@ -8,15 +8,15 @@
 - 只输出主题成员和整体 discussion_dispersion，不要写标题摘要证据文案
 
 输出 JSON：
-{
+{{
   "discussion_dispersion": "concentrated | moderate | dispersed",
   "themes": [
-    {
+    {{
       "theme_id": "theme_1",
       "member_content_ids": ["..."]
-    }
+    }}
   ]
-}
+}}
 
 builder posts:
 {builder_posts}

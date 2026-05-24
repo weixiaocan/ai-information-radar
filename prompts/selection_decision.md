@@ -7,11 +7,11 @@
 - 不要输出 `value_pitch`
 
 输出 JSON：
-{
+{{
   "selections": [
-    {"candidate_index": 1}
+    {{"candidate_index": 1}}
   ]
-}
+}}
 
 exclude content ids:
 {exclude_content_ids}

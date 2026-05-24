@@ -58,6 +58,97 @@ class LLMClientValidationTest(unittest.TestCase):
         self.assertIn('"candidate_index": 1', prompt)
         self.assertNotIn('"content_id": "rss_1"', prompt)
 
+    def test_daily_builder_hot_copy_prompt_formats_real_template(self) -> None:
+        client = DeepSeekClient(api_key="key", base_url="https://example.com", timeout_seconds=30)
+        item = ContentItem(
+            content_id="zara_x_1",
+            source_type="zara_x",
+            source_name="zara_x",
+            title="Builder post",
+            url="https://x.com/example/status/1",
+            author="Builder",
+            published_at=datetime(2026, 5, 11, tzinfo=timezone.utc),
+            fetched_at=datetime(2026, 5, 11, 1, tzinfo=timezone.utc),
+            body="Builder body",
+            body_type="tweet",
+            ai_summary="Builder summary",
+        )
+
+        with patch.object(client, "_chat_completion", return_value='{"signals": []}') as chat_mock:
+            payload = client.daily_builder_hot_copy(
+                "prompts/builder_hot_copy.md",
+                [item],
+                [{"content_id": "zara_x_1", "source": "Builder", "url": item.url, "topic_key": "Agent"}],
+            )
+
+        self.assertEqual(payload, {"signals": []})
+        prompt = chat_mock.call_args.args[0]
+        self.assertIn('"content_id": "zara_x_1"', prompt)
+        self.assertIn('"author": "Builder"', prompt)
+
+    def test_daily_report_prompt_templates_format_real_files(self) -> None:
+        client = DeepSeekClient(api_key="key", base_url="https://example.com", timeout_seconds=30)
+        builder_item = ContentItem(
+            content_id="zara_x_1",
+            source_type="zara_x",
+            source_name="zara_x",
+            title="Builder post",
+            url="https://x.com/example/status/1",
+            author="Builder",
+            published_at=datetime(2026, 5, 11, tzinfo=timezone.utc),
+            fetched_at=datetime(2026, 5, 11, 1, tzinfo=timezone.utc),
+            body="Builder body",
+            body_type="tweet",
+            ai_summary="Builder summary",
+        )
+        editorial_item = ContentItem(
+            content_id="rss_1",
+            source_type="rss",
+            source_name="simon_willison",
+            title="Editorial post",
+            url="https://example.com/post",
+            author="Simon Willison",
+            published_at=datetime(2026, 5, 11, tzinfo=timezone.utc),
+            fetched_at=datetime(2026, 5, 11, 1, tzinfo=timezone.utc),
+            body="Editorial body",
+            body_type="article",
+            ai_summary="Editorial summary",
+        )
+
+        with patch.object(client, "_chat_completion", return_value='{"themes": [], "discussion_dispersion": "dispersed"}') as chat_mock:
+            client.daily_theme_decisions(
+                "prompts/theme_decision.md",
+                [builder_item],
+                theme_signals=[{"content_id": "zara_x_1", "source": "Builder", "url": builder_item.url, "topic_key": "Agent"}],
+            )
+        self.assertIn('"theme_id": "theme_1"', chat_mock.call_args.args[0])
+
+        with patch.object(client, "_chat_completion", return_value='{"themes": []}') as chat_mock:
+            client.daily_theme_copy(
+                "prompts/theme_copy.md",
+                [builder_item],
+                decided_themes=[{"theme_id": "theme_1", "member_content_ids": ["zara_x_1"]}],
+                theme_signals=[{"content_id": "zara_x_1", "source": "Builder", "url": builder_item.url, "topic_key": "Agent"}],
+            )
+        self.assertIn('"evidence"', chat_mock.call_args.args[0])
+
+        with patch.object(client, "_chat_completion", return_value='{"selections": []}') as chat_mock:
+            client.daily_selection_decisions(
+                "prompts/selection_decision.md",
+                [editorial_item],
+                set(),
+            )
+        self.assertIn('"candidate_index": 1', chat_mock.call_args.args[0])
+
+        with patch.object(client, "_chat_completion", return_value='{"selections": [], "selection_diversity": ""}') as chat_mock:
+            client.daily_selection_copy(
+                "prompts/selection_copy.md",
+                [editorial_item],
+                [1],
+                set(),
+            )
+        self.assertIn('"value_pitch": "..."', chat_mock.call_args.args[0])
+
     def test_collect_weekly_pitch_issues_flags_english_and_missing_structure(self) -> None:
         client = DeepSeekClient(api_key="", base_url="", timeout_seconds=30)
         issues = client._collect_weekly_pitch_issues(

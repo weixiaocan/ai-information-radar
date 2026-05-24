@@ -7,15 +7,15 @@
 - 不要新增未选中的候选
 
 输出 JSON：
-{
+{{
   "selections": [
-    {
+    {{
       "candidate_index": 1,
       "value_pitch": "..."
-    }
+    }}
   ],
   "selection_diversity": "..."
-}
+}}
 
 exclude content ids:
 {exclude_content_ids}

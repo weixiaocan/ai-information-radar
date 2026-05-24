@@ -8,9 +8,9 @@
 - `spotlight_text` 必须是具体事实句，不要写成“某人在讨论某问题”
 
 输出 JSON：
-{
+{{
   "signals": [
-    {
+    {{
       "content_id": "...",
       "source": "...",
       "url": "...",
@@ -19,9 +19,9 @@
       "angle": "...",
       "excerpt": "...",
       "spotlight_text": "..."
-    }
+    }}
   ]
-}
+}}
 
 accepted signals:
 {accepted_signals_json}

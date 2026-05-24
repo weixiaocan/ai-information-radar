@@ -124,6 +124,31 @@ class DailyDigestBuilderTest(unittest.TestCase):
         self.assertIn("This write-up explains the refactor", content)
         self.assertNotIn("refactor.", content)
 
+    def test_spotlight_line_strips_leading_punctuation(self) -> None:
+        builder = DailyDigestBuilder()
+        content = builder._render_spotlight_line(
+            {
+                "source": "Garry Tan",
+                "text": "，填补空白市场，而非颠覆现有市场",
+                "url": "https://x.com/garrytan/status/1",
+            }
+        )
+        self.assertIn("填补空白市场", content)
+        self.assertNotIn("：，", content)
+
+    def test_selection_title_escapes_angle_brackets_for_feishu_markdown(self) -> None:
+        builder = DailyDigestBuilder()
+        content = builder._render_selection_block(
+            {
+                "type": "article",
+                "channel_or_source": "simon_willison",
+                "title": "On the <dl>",
+                "url": "https://example.com/dl",
+                "value_pitch": "Useful HTML details",
+            }
+        )
+        self.assertIn("[On the &lt;dl&gt;](https://example.com/dl)", content)
+
     def test_daily_digest_shows_supplementary_candidates_without_selected_items(self) -> None:
         payload = DailyDigestBuilder().build(
             themes_data={
