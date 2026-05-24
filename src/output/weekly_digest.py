@@ -219,7 +219,8 @@ class WeeklyDigestBuilder:
         elif items:
             window_end = max(items, key=lambda item: item.published_at).published_at.date()
         else:
-            window_end = date.today() - timedelta(days=1)
+            today = date.today()
+            window_end = today - timedelta(days=today.weekday() + 1)
         window_start = window_end - timedelta(days=6)
         return window_end.isocalendar().week, window_start, window_end
 

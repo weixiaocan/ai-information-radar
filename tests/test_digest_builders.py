@@ -542,7 +542,7 @@ class WeeklyDigestBuilderTest(unittest.TestCase):
         client.weekly_pitch.return_value = "pitch"
         builder = WeeklyDigestBuilder(client, "prompts/weekly_pitch.md", "prompts/weekly_themes.md")
 
-        markdown = builder.render_markdown([], target_end_date=date(2026, 5, 23))
+        markdown = builder.render_markdown([], target_end_date=date(2026, 5, 24))
 
         self.assertNotIn("Single source theme", markdown)
         self.assertNotIn("## 本周重要主题", markdown)
@@ -553,7 +553,7 @@ class WeeklyDigestBuilderTest(unittest.TestCase):
         client.weekly_pitch.return_value = "pitch"
         builder = WeeklyDigestBuilder(client, "prompts/weekly_pitch.md", "prompts/weekly_themes.md")
 
-        markdown = builder.render_markdown([], target_end_date=date(2026, 5, 23))
+        markdown = builder.render_markdown([], target_end_date=date(2026, 5, 24))
 
         self.assertIn("## 本周最值得亲自看的内容", markdown)
         self.assertIn("本周暂无完成 Tier 2 深评分的 YouTube 内容", markdown)
@@ -564,9 +564,9 @@ class WeeklyDigestBuilderTest(unittest.TestCase):
         client.weekly_pitch.return_value = "pitch"
         builder = WeeklyDigestBuilder(client, "prompts/weekly_pitch.md", "prompts/weekly_themes.md")
 
-        markdown = builder.render_markdown([], target_end_date=date(2026, 5, 23))
+        markdown = builder.render_markdown([], target_end_date=date(2026, 5, 24))
 
-        self.assertIn("# AI Radar 周报 · 第21周（05-17 ~ 05-23）", markdown)
+        self.assertIn("# AI Radar 周报 · 第21周（05-18 ~ 05-24）", markdown)
 
 
 if __name__ == "__main__":

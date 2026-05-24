@@ -119,7 +119,7 @@ class PipelineHelpersTest(unittest.TestCase):
         stats = pipeline.daily_builder.build.call_args.args[2]
         self.assertEqual(stats["total"], 1)
 
-    def test_load_items_for_weekly_report_uses_previous_seven_content_days(self) -> None:
+    def test_load_items_for_weekly_report_uses_previous_natural_week(self) -> None:
         pipeline = Pipeline.__new__(Pipeline)
         pipeline.transcript_store = Mock()
         expected_items = [
@@ -138,14 +138,24 @@ class PipelineHelpersTest(unittest.TestCase):
         ]
         pipeline.transcript_store.load_by_published_range.return_value = expected_items
 
-        result = Pipeline._load_items_for_weekly_report(pipeline, date(2026, 5, 23))
+        result = Pipeline._load_items_for_weekly_report(pipeline, date(2026, 5, 24))
 
         self.assertEqual(result, expected_items)
         start_at, end_at = pipeline.transcript_store.load_by_published_range.call_args.args
-        self.assertEqual(start_at.date(), date(2026, 5, 17))
-        self.assertEqual(end_at.date(), date(2026, 5, 24))
+        self.assertEqual(start_at.date(), date(2026, 5, 18))
+        self.assertEqual(end_at.date(), date(2026, 5, 25))
 
-    def test_weekly_uses_stored_week_window_instead_of_tier2_snapshot(self) -> None:
+    def test_resolve_weekly_end_date_uses_previous_sunday(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+
+        with unittest.mock.patch("src.pipeline.date") as mock_date:
+            mock_date.today.return_value = date(2026, 5, 25)
+            mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+            resolved = Pipeline._resolve_weekly_end_date(pipeline)
+
+        self.assertEqual(resolved, date(2026, 5, 24))
+
+    def test_weekly_uses_previous_natural_week_instead_of_tier2_snapshot(self) -> None:
         pipeline = Pipeline.__new__(Pipeline)
         weekly_item = ContentItem(
             content_id="youtube_weekly",
@@ -161,7 +171,7 @@ class PipelineHelpersTest(unittest.TestCase):
             ai_score={"relevance": 8, "contrarian": 7, "guest_rarity": 6, "popularity": 5},
         )
         pipeline._load_items_for_weekly_report = Mock(return_value=[weekly_item])
-        pipeline._resolve_weekly_end_date = Mock(return_value=date(2026, 5, 23))
+        pipeline._resolve_weekly_end_date = Mock(return_value=date(2026, 5, 24))
         pipeline.report_writer = Mock()
         pipeline.weekly_builder = Mock()
         pipeline.weekly_builder.build.return_value = {"msg_type": "interactive"}
@@ -174,10 +184,10 @@ class PipelineHelpersTest(unittest.TestCase):
         payload = Pipeline.weekly(pipeline, deliver=False)
 
         self.assertEqual(payload["msg_type"], "interactive")
-        pipeline._load_items_for_weekly_report.assert_called_once_with(date(2026, 5, 23))
+        pipeline._load_items_for_weekly_report.assert_called_once_with(date(2026, 5, 24))
         pipeline.report_writer.write.assert_called_once_with([weekly_item])
-        pipeline.weekly_builder.build.assert_called_once_with([weekly_item], target_end_date=date(2026, 5, 23))
-        pipeline._write_weekly_report.assert_called_once_with([weekly_item], target_end_date=date(2026, 5, 23))
+        pipeline.weekly_builder.build.assert_called_once_with([weekly_item], target_end_date=date(2026, 5, 24))
+        pipeline._write_weekly_report.assert_called_once_with([weekly_item], target_end_date=date(2026, 5, 24))
         pipeline.feishu.send.assert_not_called()
         self.assertEqual(payload, {"msg_type": "interactive"})
 

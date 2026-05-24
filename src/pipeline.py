@@ -685,7 +685,8 @@ class Pipeline:
         return path
 
     def _resolve_weekly_end_date(self) -> date:
-        return date.today() - timedelta(days=1)
+        today = date.today()
+        return today - timedelta(days=today.weekday() + 1)
 
     def _weekly_window_bounds(self, target_end_date: date) -> tuple[datetime, datetime]:
         window_start = datetime.combine(target_end_date - timedelta(days=6), datetime.min.time(), tzinfo=LOCAL_TIMEZONE)

@@ -5,9 +5,21 @@ from dataclasses import dataclass
 
 import requests
 from youtube_transcript_api import YouTubeTranscriptApi
-from youtube_transcript_api._errors import IpBlocked, RequestBlocked, TranscriptsDisabled, VideoUnavailable
+from youtube_transcript_api import _errors as yta_errors
 
 LOGGER = logging.getLogger(__name__)
+
+TRANSCRIPT_EXPECTED_ERRORS: tuple[type[Exception], ...] = tuple(
+    error_type
+    for error_type in (
+        getattr(yta_errors, "IpBlocked", None),
+        getattr(yta_errors, "RequestBlocked", None),
+        getattr(yta_errors, "TooManyRequests", None),
+        getattr(yta_errors, "TranscriptsDisabled", None),
+        getattr(yta_errors, "VideoUnavailable", None),
+    )
+    if isinstance(error_type, type) and issubclass(error_type, Exception)
+)
 
 
 @dataclass
@@ -42,7 +54,7 @@ class TranscriptClient:
                 text="\n".join(segment.text for segment in transcript),
                 source="youtube_transcript_api",
             )
-        except (IpBlocked, RequestBlocked, TranscriptsDisabled, VideoUnavailable) as exc:
+        except TRANSCRIPT_EXPECTED_ERRORS as exc:
             return TranscriptResult(text=None, source=None, error=str(exc))
         except Exception as exc:
             LOGGER.warning("Unexpected transcript fetch failure for %s: %s", video_id, exc)
