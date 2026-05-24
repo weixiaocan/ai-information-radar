@@ -441,15 +441,23 @@ class Pipeline:
         }
 
     def weekly(self, items: list[ContentItem] | None = None, deliver: bool = True) -> dict:
-        items = items or self._load_stage_items("tier2")
-        self.report_writer.write(items)
-        payload = self.weekly_builder.build(items)
-        report_path = self._write_weekly_report(items)
+        weekly_end_date = self._resolve_weekly_end_date()
+        weekly_items = self._load_items_for_weekly_report(weekly_end_date)
+        self.report_writer.write(weekly_items)
+        payload = self.weekly_builder.build(weekly_items, target_end_date=weekly_end_date)
+        report_path = self._write_weekly_report(weekly_items, target_end_date=weekly_end_date)
         if deliver:
             self.feishu.send(payload)
         target_label = report_path.stem if report_path else "latest"
         self._publish_site_report("weekly", report_path, target_label)
-        self.state_manager.write_heartbeat("weekly", {"items": len(items)})
+        self.state_manager.write_heartbeat(
+            "weekly",
+            {
+                "items": len(weekly_items),
+                "window_start": (weekly_end_date - timedelta(days=6)).isoformat(),
+                "window_end": weekly_end_date.isoformat(),
+            },
+        )
         return payload
 
     def publish_site(self, report_type: str = "all") -> dict[str, Any]:
@@ -667,15 +675,27 @@ class Pipeline:
         )
         return path
 
-    def _write_weekly_report(self, items: list[ContentItem]) -> Path:
-        if items:
-            week = max(items, key=lambda item: item.published_at).published_at.isocalendar()
-            filename = f"{week.year}-W{week.week:02d}"
-        else:
-            filename = "latest"
+    def _write_weekly_report(self, items: list[ContentItem], target_end_date: date | None = None) -> Path:
+        if target_end_date is None:
+            target_end_date = self._resolve_weekly_end_date()
+        week = target_end_date.isocalendar()
+        filename = f"{week.year}-W{week.week:02d}"
         path = self.weekly_reports_root / f"{filename}.md"
-        path.write_text(self.weekly_builder.render_markdown(items), encoding="utf-8")
+        path.write_text(self.weekly_builder.render_markdown(items, target_end_date=target_end_date), encoding="utf-8")
         return path
+
+    def _resolve_weekly_end_date(self) -> date:
+        return date.today() - timedelta(days=1)
+
+    def _weekly_window_bounds(self, target_end_date: date) -> tuple[datetime, datetime]:
+        window_start = datetime.combine(target_end_date - timedelta(days=6), datetime.min.time(), tzinfo=LOCAL_TIMEZONE)
+        window_end = datetime.combine(target_end_date + timedelta(days=1), datetime.min.time(), tzinfo=LOCAL_TIMEZONE)
+        return window_start, window_end
+
+    def _load_items_for_weekly_report(self, target_end_date: date) -> list[ContentItem]:
+        start_at, end_at = self._weekly_window_bounds(target_end_date)
+        stored_items = self.transcript_store.load_by_published_range(start_at, end_at)
+        return sorted(stored_items, key=lambda item: item.published_at)
 
     def _resolve_daily_target_date(
         self,

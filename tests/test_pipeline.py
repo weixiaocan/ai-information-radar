@@ -118,6 +118,67 @@ class PipelineHelpersTest(unittest.TestCase):
         pipeline.daily_builder.build.assert_called_once()
         stats = pipeline.daily_builder.build.call_args.args[2]
         self.assertEqual(stats["total"], 1)
+
+    def test_load_items_for_weekly_report_uses_previous_seven_content_days(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline.transcript_store = Mock()
+        expected_items = [
+            ContentItem(
+                content_id="rss_1",
+                source_type="rss",
+                source_name="techcrunch_ai",
+                title="Weekly item",
+                url="https://example.com/weekly",
+                author="TechCrunch",
+                published_at=datetime(2026, 5, 23, 12, tzinfo=timezone.utc),
+                fetched_at=datetime(2026, 5, 24, 1, tzinfo=timezone.utc),
+                body="Body",
+                body_type="article",
+            )
+        ]
+        pipeline.transcript_store.load_by_published_range.return_value = expected_items
+
+        result = Pipeline._load_items_for_weekly_report(pipeline, date(2026, 5, 23))
+
+        self.assertEqual(result, expected_items)
+        start_at, end_at = pipeline.transcript_store.load_by_published_range.call_args.args
+        self.assertEqual(start_at.date(), date(2026, 5, 17))
+        self.assertEqual(end_at.date(), date(2026, 5, 24))
+
+    def test_weekly_uses_stored_week_window_instead_of_tier2_snapshot(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        weekly_item = ContentItem(
+            content_id="youtube_weekly",
+            source_type="youtube",
+            source_name="training_data",
+            title="Weekly video",
+            url="https://youtube.com/watch?v=weekly",
+            author="Host",
+            published_at=datetime(2026, 5, 23, 12, tzinfo=timezone.utc),
+            fetched_at=datetime(2026, 5, 24, 1, tzinfo=timezone.utc),
+            body="Transcript",
+            body_type="transcript",
+            ai_score={"relevance": 8, "contrarian": 7, "guest_rarity": 6, "popularity": 5},
+        )
+        pipeline._load_items_for_weekly_report = Mock(return_value=[weekly_item])
+        pipeline._resolve_weekly_end_date = Mock(return_value=date(2026, 5, 23))
+        pipeline.report_writer = Mock()
+        pipeline.weekly_builder = Mock()
+        pipeline.weekly_builder.build.return_value = {"msg_type": "interactive"}
+        pipeline._write_weekly_report = Mock(return_value=Path("reports/weekly/2026-W21.md"))
+        pipeline.feishu = Mock()
+        pipeline._publish_site_report = Mock()
+        pipeline.state_manager = Mock()
+        pipeline.state_manager.write_heartbeat = Mock()
+
+        payload = Pipeline.weekly(pipeline, deliver=False)
+
+        self.assertEqual(payload["msg_type"], "interactive")
+        pipeline._load_items_for_weekly_report.assert_called_once_with(date(2026, 5, 23))
+        pipeline.report_writer.write.assert_called_once_with([weekly_item])
+        pipeline.weekly_builder.build.assert_called_once_with([weekly_item], target_end_date=date(2026, 5, 23))
+        pipeline._write_weekly_report.assert_called_once_with([weekly_item], target_end_date=date(2026, 5, 23))
+        pipeline.feishu.send.assert_not_called()
         self.assertEqual(payload, {"msg_type": "interactive"})
 
     def test_daily_persists_invariant_warnings(self) -> None:

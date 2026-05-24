@@ -424,6 +424,12 @@ class WeeklyDigestBuilderTest(unittest.TestCase):
                             "url": "https://claude.com/blog/memory",
                             "source_name": "Anthropic Engineering",
                             "type": "article",
+                        },
+                        {
+                            "title": "Anthropic launches new developer tools",
+                            "url": "https://example.com/anthropic-tools",
+                            "source_name": "Anthropic Engineering",
+                            "type": "article",
                         }
                     ],
                 }
@@ -463,6 +469,12 @@ class WeeklyDigestBuilderTest(unittest.TestCase):
                         {
                             "title": "Zara Zhang: AI psychosis: cycling between two mental states every single day",
                             "url": "https://x.com/zarazhangrui/status/1",
+                            "source_name": "Zara Zhang",
+                            "type": "article",
+                        },
+                        {
+                            "title": "Second builder signal",
+                            "url": "https://x.com/zarazhangrui/status/2",
                             "source_name": "Zara Zhang",
                             "type": "article",
                         }
@@ -508,6 +520,53 @@ class WeeklyDigestBuilderTest(unittest.TestCase):
         markdown = builder.render_markdown(items)
 
         self.assertIn("**Training Data**", markdown)
+
+    def test_weekly_digest_filters_themes_with_only_one_highlight(self) -> None:
+        client = Mock()
+        client.weekly_themes.return_value = {
+            "themes": [
+                {
+                    "title": "Single source theme",
+                    "summary": "Should not render",
+                    "highlights": [
+                        {
+                            "title": "Only item",
+                            "url": "https://example.com/only",
+                            "source_name": "TechCrunch AI",
+                            "type": "article",
+                        }
+                    ],
+                }
+            ]
+        }
+        client.weekly_pitch.return_value = "pitch"
+        builder = WeeklyDigestBuilder(client, "prompts/weekly_pitch.md", "prompts/weekly_themes.md")
+
+        markdown = builder.render_markdown([], target_end_date=date(2026, 5, 23))
+
+        self.assertNotIn("Single source theme", markdown)
+        self.assertNotIn("## 本周重要主题", markdown)
+
+    def test_weekly_digest_shows_empty_top_state_when_no_scored_youtube(self) -> None:
+        client = Mock()
+        client.weekly_themes.return_value = {"themes": []}
+        client.weekly_pitch.return_value = "pitch"
+        builder = WeeklyDigestBuilder(client, "prompts/weekly_pitch.md", "prompts/weekly_themes.md")
+
+        markdown = builder.render_markdown([], target_end_date=date(2026, 5, 23))
+
+        self.assertIn("## 本周最值得亲自看的内容", markdown)
+        self.assertIn("本周暂无完成 Tier 2 深评分的 YouTube 内容", markdown)
+
+    def test_weekly_digest_uses_explicit_target_end_date_for_header_window(self) -> None:
+        client = Mock()
+        client.weekly_themes.return_value = {"themes": []}
+        client.weekly_pitch.return_value = "pitch"
+        builder = WeeklyDigestBuilder(client, "prompts/weekly_pitch.md", "prompts/weekly_themes.md")
+
+        markdown = builder.render_markdown([], target_end_date=date(2026, 5, 23))
+
+        self.assertIn("# AI Radar 周报 · 第21周（05-17 ~ 05-23）", markdown)
 
 
 if __name__ == "__main__":

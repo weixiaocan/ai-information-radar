@@ -18,13 +18,10 @@ class WeeklyDigestBuilder:
         self.themes_prompt_path = themes_prompt_path
         self.display_name_map = self._load_display_name_map()
 
-    def build(self, items: list[ContentItem]) -> dict[str, Any]:
+    def build(self, items: list[ContentItem], target_end_date: date | None = None) -> dict[str, Any]:
         top_payloads = self._build_top_payloads(items)
-        theme_payload = self.client.weekly_themes(
-            self.themes_prompt_path,
-            [item for item in items if item.ai_summary or item.body],
-        )
-        week_number, monday, sunday = self._week_window(items)
+        themes = self._build_themes(items)
+        week_number, window_start, window_end = self._week_window(items, target_end_date)
         return {
             "msg_type": "interactive",
             "card": {
@@ -33,23 +30,19 @@ class WeeklyDigestBuilder:
                     "template": "purple",
                     "title": {
                         "tag": "plain_text",
-                        "content": f"AI Radar 周报 · 第{week_number}周（{monday:%m-%d} ~ {sunday:%m-%d}）",
+                        "content": f"AI Radar 周报 · 第{week_number}周（{window_start:%m-%d} ~ {window_end:%m-%d}）",
                     },
                 },
-                "elements": self._build_elements(theme_payload.get("themes", []), top_payloads),
+                "elements": self._build_elements(themes, top_payloads),
             },
         }
 
-    def render_markdown(self, items: list[ContentItem]) -> str:
+    def render_markdown(self, items: list[ContentItem], target_end_date: date | None = None) -> str:
         top_payloads = self._build_top_payloads(items)
-        theme_payload = self.client.weekly_themes(
-            self.themes_prompt_path,
-            [item for item in items if item.ai_summary or item.body],
-        )
-        themes = theme_payload.get("themes", [])
-        week_number, monday, sunday = self._week_window(items)
+        themes = self._build_themes(items)
+        week_number, window_start, window_end = self._week_window(items, target_end_date)
 
-        lines = [f"# AI Radar 周报 · 第{week_number}周（{monday:%m-%d} ~ {sunday:%m-%d}）", ""]
+        lines = [f"# AI Radar 周报 · 第{week_number}周（{window_start:%m-%d} ~ {window_end:%m-%d}）", ""]
         if themes:
             lines.append("## 本周重要主题")
             lines.append("")
@@ -60,9 +53,11 @@ class WeeklyDigestBuilder:
         lines.append("## 本周最值得亲自看的内容")
         lines.append("")
         medals = ["🥇", "🥈"]
+        rendered_any_top = False
         for index, payload in enumerate(top_payloads):
             if payload is None:
                 continue
+            rendered_any_top = True
             item: ContentItem = payload["item"]
             display_name = self._get_display_name(get_original_source_name(item))
             lines.append(f"### {medals[index]} Top {index + 1}: {item.title}")
@@ -73,8 +68,16 @@ class WeeklyDigestBuilder:
             lines.append("")
             lines.append(self._format_score_line(payload["total"], item.ai_score or {}))
             lines.append("")
+        if not rendered_any_top:
+            lines.append("_本周暂无完成 Tier 2 深评分的 YouTube 内容，暂不提供 Top 推荐。_")
+            lines.append("")
 
         return "\n".join(lines)
+
+    def _build_themes(self, items: list[ContentItem]) -> list[dict[str, Any]]:
+        source_items = [item for item in items if item.ai_summary or item.body]
+        payload = self.client.weekly_themes(self.themes_prompt_path, source_items)
+        return self._filter_valid_themes(payload.get("themes", []))
 
     def _build_top_payloads(self, items: list[ContentItem]) -> list[dict[str, Any] | None]:
         ranked = sorted(
@@ -117,9 +120,11 @@ class WeeklyDigestBuilder:
 
         medals = ["🥇", "🥈"]
         button_types = ["primary", "default"]
+        rendered_any_top = False
         for index, payload in enumerate(top_payloads):
             if payload is None:
                 continue
+            rendered_any_top = True
             item: ContentItem = payload["item"]
             display_name = self._get_display_name(get_original_source_name(item))
             score_line = self._format_score_line(payload["total"], item.ai_score or {})
@@ -151,6 +156,16 @@ class WeeklyDigestBuilder:
                 }
             )
             elements.append({"tag": "hr"})
+        if not rendered_any_top:
+            elements.append(
+                {
+                    "tag": "div",
+                    "text": {
+                        "tag": "lark_md",
+                        "content": "_本周暂无完成 Tier 2 深评分的 YouTube 内容，暂不提供 Top 推荐。_",
+                    },
+                }
+            )
         return elements
 
     def _render_theme_block(self, theme: dict[str, Any]) -> str:
@@ -180,7 +195,7 @@ class WeeklyDigestBuilder:
         source_type = str(highlight.get("type", "")).strip().lower()
         if not source_type:
             source_type = "youtube" if "youtube.com" in url or "youtu.be" in url else "article"
-        emoji = "🎞️" if source_type == "youtube" else "📰"
+        emoji = "▶️" if source_type == "youtube" else "📰"
         display_name = self._get_display_name(source_name) if source_name else self._fallback_display_name("unknown")
         title = self._strip_duplicate_source_prefix(title, display_name)
         if title and url:
@@ -198,15 +213,38 @@ class WeeklyDigestBuilder:
             f"传播 {int(scores.get('popularity', 0))}"
         )
 
-    def _week_window(self, items: list[ContentItem]) -> tuple[int, date, date]:
-        if items:
-            anchor = max(items, key=lambda item: item.published_at).published_at.date()
+    def _week_window(self, items: list[ContentItem], target_end_date: date | None = None) -> tuple[int, date, date]:
+        if target_end_date is not None:
+            window_end = target_end_date
+        elif items:
+            window_end = max(items, key=lambda item: item.published_at).published_at.date()
         else:
-            anchor = date.today()
-        iso = anchor.isocalendar()
-        monday = anchor - timedelta(days=anchor.weekday())
-        sunday = monday + timedelta(days=6)
-        return iso.week, monday, sunday
+            window_end = date.today() - timedelta(days=1)
+        window_start = window_end - timedelta(days=6)
+        return window_end.isocalendar().week, window_start, window_end
+
+    def _filter_valid_themes(self, themes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        valid: list[dict[str, Any]] = []
+        for theme in themes:
+            highlights = theme.get("highlights", [])
+            if not isinstance(highlights, list) or len(highlights) < 2:
+                continue
+            normalized_highlights = []
+            for highlight in highlights[:4]:
+                if not isinstance(highlight, dict):
+                    continue
+                title = str(highlight.get("title", "")).strip()
+                url = str(highlight.get("url", "")).strip()
+                source_name = str(highlight.get("source_name", "")).strip()
+                if not title or not url or not source_name:
+                    continue
+                normalized_highlights.append(highlight)
+            if len(normalized_highlights) < 2:
+                continue
+            normalized_theme = dict(theme)
+            normalized_theme["highlights"] = normalized_highlights
+            valid.append(normalized_theme)
+        return valid
 
     def _get_display_name(self, source_name: str) -> str:
         return self.display_name_map.get(source_name, self._fallback_display_name(source_name))
