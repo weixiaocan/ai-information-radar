@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 venv/
 *.pyc
+.claude-design/
 
 # Product docs not intended for public repo
 prd.md

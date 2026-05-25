@@ -31,7 +31,7 @@ class DailyDigestBuilder:
         return re.sub(r"^[,，:：;；、\.\s]+", "", text).strip()
 
     def _sanitize_link_label(self, text: str) -> str:
-        return text.replace("<", "&lt;").replace(">", "&gt;")
+        return re.sub(r"<([^<>]+)>", r"[\1]", text)
 
     def build(
         self,

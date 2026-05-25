@@ -147,7 +147,7 @@ class DailyDigestBuilderTest(unittest.TestCase):
                 "value_pitch": "Useful HTML details",
             }
         )
-        self.assertIn("[On the &lt;dl&gt;](https://example.com/dl)", content)
+        self.assertIn("[On the [dl]](https://example.com/dl)", content)
 
     def test_daily_digest_shows_supplementary_candidates_without_selected_items(self) -> None:
         payload = DailyDigestBuilder().build(

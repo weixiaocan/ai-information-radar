@@ -1,4 +1,5 @@
 import unittest
+import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
@@ -62,6 +63,45 @@ class SitePublisherTest(unittest.TestCase):
         publisher._run_git.assert_any_call("add", ".")
         publisher._run_git.assert_any_call("commit", "-m", "publish: sync daily digest 2026-05-18")
         publisher._run_git.assert_any_call("push", "origin", "main")
+
+    @patch("src.publishing.site_publisher.sync_site_content")
+    @patch("src.publishing.site_publisher.time.sleep")
+    def test_publish_retries_push_with_backoff_until_success(self, sleep_mock: Mock, sync_mock: Mock) -> None:
+        sync_mock.return_value = Mock(daily_count=2, weekly_count=1)
+        publisher = SitePublisher(
+            Path("D:/project"),
+            Path("D:/site"),
+            push_retry_delays_seconds=(180, 300, 600),
+        )
+        publisher._validate_site_repo = Mock()  # type: ignore[method-assign]
+        publisher._has_git_changes = Mock(return_value=True)  # type: ignore[method-assign]
+        push_error = subprocess.CalledProcessError(128, ["git", "push"], stderr="network down")
+        publisher._run_git = Mock(side_effect=["", "", push_error, "", ""])  # type: ignore[method-assign]
+
+        result = publisher.publish("daily", target_label="2026-05-18")
+
+        self.assertTrue(result.changed)
+        self.assertEqual(sleep_mock.call_args_list[0].args[0], 180)
+        self.assertEqual(publisher._run_git.call_args_list[-1].args, ("push", "origin", "main"))
+
+    @patch("src.publishing.site_publisher.sync_site_content")
+    @patch("src.publishing.site_publisher.time.sleep")
+    def test_publish_raises_after_all_push_retries_fail(self, sleep_mock: Mock, sync_mock: Mock) -> None:
+        sync_mock.return_value = Mock(daily_count=2, weekly_count=1)
+        publisher = SitePublisher(
+            Path("D:/project"),
+            Path("D:/site"),
+            push_retry_delays_seconds=(180, 300, 600),
+        )
+        publisher._validate_site_repo = Mock()  # type: ignore[method-assign]
+        publisher._has_git_changes = Mock(return_value=True)  # type: ignore[method-assign]
+        push_error = subprocess.CalledProcessError(128, ["git", "push"], stderr="auth failed")
+        publisher._run_git = Mock(side_effect=["", "", push_error, push_error, push_error, push_error])  # type: ignore[method-assign]
+
+        with self.assertRaisesRegex(RuntimeError, "git push failed after 4 attempts: auth failed"):
+            publisher.publish("daily", target_label="2026-05-18")
+
+        self.assertEqual([call.args[0] for call in sleep_mock.call_args_list], [180, 300, 600])
 
 
 class PipelineSitePublishTest(unittest.TestCase):

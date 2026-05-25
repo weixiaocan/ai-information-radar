@@ -101,7 +101,10 @@ SITE_PUBLISH_ENABLED=true
 SITE_REPO_PATH=..\ai-radar-site
 SITE_GIT_BRANCH=main
 SITE_PUBLISH_TIMEOUT_SECONDS=60
+SITE_PUSH_RETRY_DELAYS_SECONDS=180,300,600
 ```
+
+`SITE_PUSH_RETRY_DELAYS_SECONDS` controls automatic retries for `git push`. The default `180,300,600` means retry once after 3 minutes, then after 5 minutes, then after 10 minutes.
 
 手动同步并发布：
 

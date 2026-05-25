@@ -37,6 +37,26 @@ class ThemeAggregatorValidationTest(unittest.TestCase):
         self.assertTrue(any("evidence 1 must be written in Chinese" in issue for issue in issues))
         self.assertTrue(any("missing the original url" in issue for issue in issues))
 
+    def test_collect_issues_flags_source_name_repeated_in_evidence_excerpt(self) -> None:
+        aggregator = self._make_aggregator()
+        issues = aggregator._collect_issues(
+            {
+                "themes": [
+                    {
+                        "summary": "这是中文总结",
+                        "evidence": [
+                            {
+                                "source": "Aaron Levie",
+                                "excerpt": "Aaron Levie 表示 AI 成本分层正在扩大",
+                                "url": "https://x.com/1",
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+        self.assertTrue(any("should not repeat the source name at the start" in issue for issue in issues))
+
     def test_collect_issues_flags_cross_theme_duplicate_url(self) -> None:
         aggregator = self._make_aggregator()
         issues = aggregator._collect_issues(
@@ -205,6 +225,80 @@ class ThemeAggregatorValidationTest(unittest.TestCase):
         self.assertEqual(payload["themes"][0]["degraded_stage"], "theme_copy")
         self.assertEqual(payload["themes"][0]["fallback_mode"], "copy_from_member_signals")
         self.assertEqual(payload["degraded_stage"], "theme_copy")
+
+    def test_theme_evidence_excerpt_strips_repeated_source_prefix(self) -> None:
+        client = Mock()
+        client.daily_theme_decisions.return_value = {
+            "discussion_dispersion": "moderate",
+            "themes": [
+                {
+                    "theme_id": "theme_1",
+                    "member_content_ids": ["zara_x_1", "zara_x_2", "zara_x_3"],
+                }
+            ],
+        }
+        client.daily_theme_copy.return_value = {
+            "themes": [
+                {
+                    "theme_id": "theme_1",
+                    "theme_title": "AI 成本分层",
+                    "theme_summary": "这是中文总结",
+                    "evidence": [
+                        {
+                            "source": "Aaron Levie",
+                            "excerpt": "Aaron Levie 表示 AI 成本分层正在扩大",
+                            "url": "https://x.com/1",
+                        },
+                        {
+                            "source": "Peter Yang",
+                            "excerpt": "Peter Yang 分享了应对裁员的六项建议",
+                            "url": "https://x.com/2",
+                        },
+                        {
+                            "source": "Swyx",
+                            "excerpt": "Swyx 介绍 Kakuna 用清单强化代码库",
+                            "url": "https://x.com/3",
+                        },
+                    ],
+                }
+            ]
+        }
+        aggregator = ThemeAggregator(client, Path("prompts/theme_decision.md"), Path("prompts/theme_copy.md"))
+        items = [
+            ContentItem(
+                content_id=f"zara_x_{index}",
+                source_type="zara_x",
+                source_name="zara_x",
+                title=f"Builder post {index}",
+                url=f"https://x.com/{index}",
+                author=author,
+                published_at=datetime(2026, 5, 5, tzinfo=timezone.utc),
+                fetched_at=datetime(2026, 5, 5, 1, tzinfo=timezone.utc),
+                body=f"Body {index}",
+                body_type="tweet",
+                ai_summary=f"Summary {index}",
+            )
+            for index, author in enumerate(["Aaron Levie", "Peter Yang", "Swyx"], start=1)
+        ]
+        signals = [
+            {
+                "decision": {"content_id": f"zara_x_{index}", "source": author, "url": f"https://x.com/{index}"},
+                "copy": {
+                    "topic_label": "Agent 工程",
+                    "core_claim": f"Summary {index}",
+                    "angle": "经验观察",
+                    "excerpt": f"Summary {index}",
+                    "spotlight_text": f"Summary {index}",
+                },
+            }
+            for index, author in enumerate(["Aaron Levie", "Peter Yang", "Swyx"], start=1)
+        ]
+
+        payload = aggregator.aggregate_themes(items, signals)
+        evidence = payload["themes"][0]["copy"]["evidence"]
+
+        self.assertEqual(evidence[0]["excerpt"], "AI 成本分层正在扩大")
+        self.assertEqual(evidence[1]["excerpt"], "应对裁员的六项建议")
 
 
 if __name__ == "__main__":

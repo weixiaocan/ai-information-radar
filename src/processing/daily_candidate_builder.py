@@ -20,10 +20,12 @@ class DailyCandidateBuilder:
     per_source_limit: int = 2
     per_topic_limit: int = 1
     builder_candidate_limit: int = 10
+    _last_builder_stage: str = "ok"
 
     def build(self, today_items: list[ContentItem]) -> dict[str, Any]:
         builder_items = [item for item in today_items if item.source_type == "zara_x"]
         editorial_items = [item for item in today_items if item.source_type != "zara_x"]
+        self._last_builder_stage = "ok"
         builder_hot_candidates = self._build_builder_hot_candidates(builder_items)
         editorial_candidates_raw = self._build_editorial_candidates(editorial_items)
         editorial_candidates_filtered = self._filter_editorial_candidates(editorial_candidates_raw)
@@ -38,9 +40,9 @@ class DailyCandidateBuilder:
         if builder_items and not builder_hot_candidates:
             return with_degraded_fields(
                 payload,
-                degraded_reason="builder_decision_failed",
-                degraded_stage="builder_decision",
-                fallback_mode="empty_hot_pool",
+                degraded_reason="builder_copy_failed" if self._last_builder_stage == "builder_copy" else "builder_decision_failed",
+                degraded_stage="builder_copy" if self._last_builder_stage == "builder_copy" else "builder_decision",
+                fallback_mode="per_item_copy_fallback" if self._last_builder_stage == "builder_copy" else "empty_hot_pool",
             )
         if any(candidate.get("degraded_stage") for candidate in builder_hot_candidates):
             return with_degraded_fields(
@@ -56,6 +58,9 @@ class DailyCandidateBuilder:
             return []
 
         decisions = self._fetch_builder_decisions(builder_items)
+        if not decisions:
+            self._last_builder_stage = "builder_decision"
+            return []
         copies = self._fetch_builder_copy_payload(builder_items, decisions)
         items_by_id = {item.content_id: item for item in builder_items}
         items_by_url = {item.url: item for item in builder_items if item.url}
@@ -81,7 +86,7 @@ class DailyCandidateBuilder:
             if copy_payload and self._collect_single_signal_issues(copy_payload):
                 copy_payload = None
             if not copy_payload:
-                copy_payload = self._fallback_builder_copy(item, topic_key, source)
+                copy_payload = self._repair_builder_copy(item, decision)
                 used_copy_fallback = True
 
             topic_label = copy_payload["topic_label"]
@@ -736,10 +741,7 @@ class DailyCandidateBuilder:
             "url": item.url,
             "topic_key": item.title[:40].strip() or "Builder 观察",
         }
-        copy_payloads = self._fetch_builder_copy_payload([item], [decision])
-        repaired = copy_payloads[0] if copy_payloads else self._fallback_builder_copy(item, decision["topic_key"], source)
-        if self._collect_single_signal_issues(repaired):
-            repaired = self._fallback_builder_copy(item, decision["topic_key"], source)
+        repaired = self._repair_builder_copy(item, decision)
         return with_degraded_fields(
             self._make_builder_hot_candidate(
             content_id=item.content_id,
@@ -760,6 +762,20 @@ class DailyCandidateBuilder:
             degraded_stage="builder_copy",
             fallback_mode="copy_from_item_excerpt",
         )
+
+    def _repair_builder_copy(
+        self,
+        item: ContentItem | None,
+        decision: dict[str, str],
+    ) -> dict[str, str]:
+        source = str(decision.get("source", "")).strip()
+        topic_key = str(decision.get("topic_key", "")).strip()
+        copy_payloads = self._fetch_builder_copy_payload([item], [decision]) if item is not None else []
+        repaired = copy_payloads[0] if copy_payloads else {}
+        if repaired and not self._collect_single_signal_issues(repaired):
+            return repaired
+        self._last_builder_stage = "builder_copy"
+        return self._safe_fallback_builder_copy(item, topic_key, source)
 
     def _fallback_builder_copy(
         self,
@@ -792,6 +808,48 @@ class DailyCandidateBuilder:
             "excerpt": excerpt,
             "spotlight_text": spotlight_text or excerpt,
         }
+
+    def _safe_fallback_builder_copy(
+        self,
+        item: ContentItem | None,
+        topic_key: str,
+        source: str,
+    ) -> dict[str, str]:
+        topic_label = self._truncate_text(topic_key or (item.title if item else "") or "Builder 瑙傚療", 16)
+        raw_excerpt = ""
+        if item is not None:
+            raw_excerpt = (
+                item.ai_summary
+                or str(item.extra_metadata.get("raw_entry", {}).get("content") or "")
+                or item.body
+            ).strip()
+        if raw_excerpt and not self._looks_mostly_english(raw_excerpt) and not self._looks_truncated(raw_excerpt):
+            excerpt = self._truncate_text(raw_excerpt, 60)
+            spotlight_text = self._resolve_spotlight_text(
+                source=source,
+                spotlight_text=raw_excerpt,
+                excerpt=excerpt,
+                core_claim=excerpt,
+            )
+        else:
+            spotlight_text = self._build_structured_builder_fallback(topic_label)
+            excerpt = spotlight_text
+        return {
+            "content_id": item.content_id if item else "",
+            "source": source,
+            "url": item.url if item else "",
+            "topic_label": topic_label,
+            "core_claim": f"{source} 分享了与{topic_label}相关的具体项目或实践" if source else excerpt,
+            "angle": "琛ュ厖瑙傚療",
+            "excerpt": excerpt,
+            "spotlight_text": spotlight_text or excerpt,
+        }
+
+    def _build_structured_builder_fallback(self, topic_label: str) -> str:
+        normalized = self._strip_terminal_punctuation(topic_label.strip())
+        if not normalized:
+            return "分享了一个值得关注的 Builder 项目或实践"
+        return f"分享了与{normalized}相关的具体项目或实践"
 
     def _looks_mostly_english(self, text: str) -> bool:
         ascii_letters = len(re.findall(r"[A-Za-z]", text))

@@ -197,6 +197,10 @@ class ThemeAggregator:
                     continue
                 if self._looks_mostly_english(excerpt):
                     issues.append(f"Theme {theme_index} evidence {evidence_index} must be written in Chinese.")
+                if source and self._starts_with_source_attribution(source, excerpt):
+                    issues.append(
+                        f"Theme {theme_index} evidence {evidence_index} should not repeat the source name at the start."
+                    )
                 if len(excerpt) > 60:
                     issues.append(f"Theme {theme_index} evidence {evidence_index} is too long; keep it within 60 chars.")
                 evidence_excerpts.append(excerpt)
@@ -312,19 +316,20 @@ class ThemeAggregator:
         fallback_evidence = self._fallback_theme_evidence(member_content_ids, signal_by_content_id)
         evidence_payloads = []
         for entry in copy_payload.get("evidence", [])[:4]:
-            excerpt = str(entry.get("excerpt", "")).strip()
+            url = str(entry.get("url", "")).strip()
+            source = self._resolve_source_name(
+                str(entry.get("source", "")).strip(),
+                url,
+                member_content_ids,
+                source_by_url,
+                source_by_content_id,
+            )
+            excerpt = self._normalize_evidence_excerpt(source, str(entry.get("excerpt", "")).strip())
             if not excerpt:
                 continue
-            url = str(entry.get("url", "")).strip()
             evidence_payloads.append(
                 {
-                    "source": self._resolve_source_name(
-                        str(entry.get("source", "")).strip(),
-                        url,
-                        member_content_ids,
-                        source_by_url,
-                        source_by_content_id,
-                    ),
+                    "source": source,
                     "excerpt": excerpt,
                     "url": url,
                 }
@@ -391,10 +396,14 @@ class ThemeAggregator:
                 continue
             decision = builder_candidate_decision(signal)
             copy = builder_candidate_copy(signal)
+            source = str(decision.get("source", "")).strip()
             evidence_payloads.append(
                 {
-                    "source": str(decision.get("source", "")).strip(),
-                    "excerpt": str(copy.get("excerpt") or copy.get("core_claim") or "").strip(),
+                    "source": source,
+                    "excerpt": self._normalize_evidence_excerpt(
+                        source,
+                        str(copy.get("excerpt") or copy.get("core_claim") or "").strip(),
+                    ),
                     "url": str(decision.get("url", "")).strip(),
                 }
             )
@@ -473,6 +482,35 @@ class ThemeAggregator:
         ascii_letters = len(re.findall(r"[A-Za-z]", text))
         chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", text))
         return ascii_letters >= 12 and ascii_letters > chinese_chars
+
+    def _normalize_evidence_excerpt(self, source: str, excerpt: str) -> str:
+        normalized = excerpt.strip()
+        if not normalized or not source.strip():
+            return normalized
+
+        source_name = re.escape(source.strip())
+        patterns = [
+            rf"^{source_name}\s*[:：,，\-]\s*",
+            rf"^{source_name}\s+(表示|认为|指出|提到|分享|分析|建议|说)(?:了)?\s*",
+            rf"^{source_name}\s*",
+        ]
+        for pattern in patterns:
+            updated = re.sub(pattern, "", normalized, count=1).strip()
+            if updated and updated != normalized:
+                return updated
+        return normalized
+
+    def _starts_with_source_attribution(self, source: str, excerpt: str) -> bool:
+        normalized = excerpt.strip()
+        if not normalized or not source.strip():
+            return False
+        source_name = re.escape(source.strip())
+        return bool(
+            re.match(
+                rf"^{source_name}(?:\s*[:：,，\-]\s*|\s+(?:表示|认为|指出|提到|分享|分析|建议|说)(?:了)?\s+|\s+)",
+                normalized,
+            )
+        )
 
     def _is_summary_too_similar_to_evidence(self, summary: str, excerpt: str) -> bool:
         summary_norm = self._normalize_similarity_text(summary)

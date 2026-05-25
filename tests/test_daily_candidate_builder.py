@@ -161,7 +161,7 @@ class DailyCandidateBuilderTest(unittest.TestCase):
 
         self.assertEqual(builder_candidate_decision(payload["builder_hot_candidates"][0])["source"], "Garry Tan")
 
-    def test_builder_preserves_decision_when_copy_generation_fails(self) -> None:
+    def test_builder_uses_structured_chinese_fallback_when_copy_generation_stays_invalid(self) -> None:
         client = Mock()
         client.daily_builder_hot_decisions.return_value = {
             "signals": [
@@ -209,9 +209,9 @@ class DailyCandidateBuilderTest(unittest.TestCase):
 
         candidate = payload["builder_hot_candidates"][0]
         self.assertEqual(builder_candidate_decision(candidate)["content_id"], "zara_x_1")
-        self.assertTrue(builder_candidate_copy(candidate)["core_claim"])
+        self.assertIn("相关的具体项目或实践", builder_candidate_copy(candidate)["spotlight_text"])
+        self.assertFalse(builder._looks_mostly_english(builder_candidate_copy(candidate)["spotlight_text"]))
         self.assertEqual(candidate["degraded_stage"], "builder_copy")
-        self.assertEqual(candidate["fallback_mode"], "copy_from_item_excerpt")
         self.assertEqual(payload["degraded_stage"], "builder_copy")
 
 
