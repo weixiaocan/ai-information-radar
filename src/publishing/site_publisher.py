@@ -33,14 +33,17 @@ class SitePublisher:
     def publish(self, report_type: str, target_label: str | None = None) -> SitePublishResult:
         self._validate_site_repo()
         synced = sync_site_content(self.project_root, self.site_repo_root)
-        if not self._has_git_changes():
+        has_git_changes = self._has_git_changes()
+        if not has_git_changes and not self._has_unpushed_commits():
             return SitePublishResult(synced=synced, changed=False, commit_message=None)
 
-        commit_message = self._build_commit_message(report_type, target_label)
-        self._run_git("add", ".")
-        self._run_git("commit", "-m", commit_message)
+        commit_message: str | None = None
+        if has_git_changes:
+            commit_message = self._build_commit_message(report_type, target_label)
+            self._run_git("add", ".")
+            self._run_git("commit", "-m", commit_message)
         self._push_with_retries()
-        return SitePublishResult(synced=synced, changed=True, commit_message=commit_message)
+        return SitePublishResult(synced=synced, changed=has_git_changes, commit_message=commit_message)
 
     def sync_only(self) -> SiteSyncResult:
         self._validate_site_repo()
@@ -67,6 +70,18 @@ class SitePublisher:
     def _build_commit_message(self, report_type: str, target_label: str | None) -> str:
         label = (target_label or "content").strip()
         return f"publish: sync {report_type} digest {label}"
+
+    def _has_unpushed_commits(self) -> bool:
+        completed = subprocess.run(
+            ["git", "rev-list", "--count", "@{u}..HEAD"],
+            cwd=self.site_repo_root,
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=self.timeout_seconds,
+        )
+        return int((completed.stdout or "0").strip() or "0") > 0
 
     def _push_with_retries(self) -> None:
         push_args = ("push", "origin", self.git_branch)

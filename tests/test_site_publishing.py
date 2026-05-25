@@ -54,6 +54,7 @@ class SitePublisherTest(unittest.TestCase):
         publisher = SitePublisher(Path("D:/project"), Path("D:/site"))
         publisher._validate_site_repo = Mock()  # type: ignore[method-assign]
         publisher._has_git_changes = Mock(return_value=True)  # type: ignore[method-assign]
+        publisher._has_unpushed_commits = Mock(return_value=False)  # type: ignore[method-assign]
         publisher._run_git = Mock(return_value="")  # type: ignore[method-assign]
 
         result = publisher.publish("daily", target_label="2026-05-18")
@@ -75,6 +76,7 @@ class SitePublisherTest(unittest.TestCase):
         )
         publisher._validate_site_repo = Mock()  # type: ignore[method-assign]
         publisher._has_git_changes = Mock(return_value=True)  # type: ignore[method-assign]
+        publisher._has_unpushed_commits = Mock(return_value=False)  # type: ignore[method-assign]
         push_error = subprocess.CalledProcessError(128, ["git", "push"], stderr="network down")
         publisher._run_git = Mock(side_effect=["", "", push_error, "", ""])  # type: ignore[method-assign]
 
@@ -95,6 +97,7 @@ class SitePublisherTest(unittest.TestCase):
         )
         publisher._validate_site_repo = Mock()  # type: ignore[method-assign]
         publisher._has_git_changes = Mock(return_value=True)  # type: ignore[method-assign]
+        publisher._has_unpushed_commits = Mock(return_value=False)  # type: ignore[method-assign]
         push_error = subprocess.CalledProcessError(128, ["git", "push"], stderr="auth failed")
         publisher._run_git = Mock(side_effect=["", "", push_error, push_error, push_error, push_error])  # type: ignore[method-assign]
 
@@ -114,6 +117,7 @@ class SitePublisherTest(unittest.TestCase):
         )
         publisher._validate_site_repo = Mock()  # type: ignore[method-assign]
         publisher._has_git_changes = Mock(return_value=True)  # type: ignore[method-assign]
+        publisher._has_unpushed_commits = Mock(return_value=False)  # type: ignore[method-assign]
         push_timeout = subprocess.TimeoutExpired(["git", "push"], timeout=60)
         publisher._run_git = Mock(side_effect=["", "", push_timeout, ""])  # type: ignore[method-assign]
 
@@ -133,6 +137,7 @@ class SitePublisherTest(unittest.TestCase):
         )
         publisher._validate_site_repo = Mock()  # type: ignore[method-assign]
         publisher._has_git_changes = Mock(return_value=True)  # type: ignore[method-assign]
+        publisher._has_unpushed_commits = Mock(return_value=False)  # type: ignore[method-assign]
         push_timeout = subprocess.TimeoutExpired(["git", "push"], timeout=60)
         publisher._run_git = Mock(side_effect=["", "", push_timeout, push_timeout, push_timeout, push_timeout])  # type: ignore[method-assign]
 
@@ -140,6 +145,21 @@ class SitePublisherTest(unittest.TestCase):
             publisher.publish("daily", target_label="2026-05-18")
 
         self.assertEqual([call.args[0] for call in sleep_mock.call_args_list], [180, 300, 600])
+
+    @patch("src.publishing.site_publisher.sync_site_content")
+    def test_publish_pushes_unpushed_commits_even_without_new_file_changes(self, sync_mock: Mock) -> None:
+        sync_mock.return_value = Mock(daily_count=2, weekly_count=1)
+        publisher = SitePublisher(Path("D:/project"), Path("D:/site"))
+        publisher._validate_site_repo = Mock()  # type: ignore[method-assign]
+        publisher._has_git_changes = Mock(return_value=False)  # type: ignore[method-assign]
+        publisher._has_unpushed_commits = Mock(return_value=True)  # type: ignore[method-assign]
+        publisher._run_git = Mock(return_value="")  # type: ignore[method-assign]
+
+        result = publisher.publish("daily", target_label="2026-05-18")
+
+        self.assertFalse(result.changed)
+        self.assertIsNone(result.commit_message)
+        publisher._run_git.assert_called_once_with("push", "origin", "main")
 
 
 class PipelineSitePublishTest(unittest.TestCase):
