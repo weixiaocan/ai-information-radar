@@ -171,6 +171,7 @@ class PipelineHelpersTest(unittest.TestCase):
             ai_score={"relevance": 8, "contrarian": 7, "guest_rarity": 6, "popularity": 5},
         )
         pipeline._load_items_for_weekly_report = Mock(return_value=[weekly_item])
+        pipeline._ensure_weekly_tier2_scores = Mock(return_value=[weekly_item])
         pipeline._resolve_weekly_end_date = Mock(return_value=date(2026, 5, 24))
         pipeline.report_writer = Mock()
         pipeline.weekly_builder = Mock()
@@ -185,11 +186,72 @@ class PipelineHelpersTest(unittest.TestCase):
 
         self.assertEqual(payload["msg_type"], "interactive")
         pipeline._load_items_for_weekly_report.assert_called_once_with(date(2026, 5, 24))
+        pipeline._ensure_weekly_tier2_scores.assert_called_once_with([weekly_item])
         pipeline.report_writer.write.assert_called_once_with([weekly_item])
         pipeline.weekly_builder.build.assert_called_once_with([weekly_item], target_end_date=date(2026, 5, 24))
         pipeline._write_weekly_report.assert_called_once_with([weekly_item], target_end_date=date(2026, 5, 24))
         pipeline.feishu.send.assert_not_called()
         self.assertEqual(payload, {"msg_type": "interactive"})
+
+    def test_ensure_weekly_tier2_scores_uses_weekly_youtube_items_not_latest_stage_snapshot(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline.settings = Mock(tier2_candidate_count=5)
+        pipeline.transcript_store = Mock()
+        pipeline._fetch_transcripts_for_finalists = Mock()
+        youtube_item = ContentItem(
+            content_id="youtube_weekly",
+            source_type="youtube",
+            source_name="training_data",
+            title="Weekly video",
+            url="https://youtube.com/watch?v=weekly",
+            author="Host",
+            published_at=datetime(2026, 5, 23, 12, tzinfo=timezone.utc),
+            fetched_at=datetime(2026, 5, 24, 1, tzinfo=timezone.utc),
+            body="Transcript",
+            body_type="transcript",
+            ai_score=None,
+        )
+        x_item = ContentItem(
+            content_id="zara_x_1",
+            source_type="zara_x",
+            source_name="zara_x",
+            title="Builder mention",
+            url="https://x.com/example/status/1",
+            author="Builder",
+            published_at=datetime(2026, 5, 23, 13, tzinfo=timezone.utc),
+            fetched_at=datetime(2026, 5, 24, 1, tzinfo=timezone.utc),
+            body="Check this out https://youtube.com/watch?v=weekly",
+            body_type="tweet",
+        )
+        coarse_item = ContentItem.from_dict(
+            {
+                **youtube_item.to_dict(),
+                "ai_score": {"relevance": 8, "contrarian": 7, "guest_rarity": 6, "popularity": 5},
+                "ai_score_reasons": {},
+                "extra_metadata": {"score_stage": "coarse"},
+            }
+        )
+        deep_item = ContentItem.from_dict(
+            {
+                **youtube_item.to_dict(),
+                "ai_score": {"relevance": 9, "contrarian": 8, "guest_rarity": 7, "popularity": 6},
+                "ai_score_reasons": {},
+                "extra_metadata": {"score_stage": "deep"},
+            }
+        )
+        pipeline.scorer = Mock()
+        pipeline.scorer.run_coarse.return_value = [coarse_item]
+        pipeline._fetch_transcripts_for_finalists.return_value = [coarse_item]
+        pipeline.scorer.run_deep.return_value = [deep_item]
+
+        refreshed = Pipeline._ensure_weekly_tier2_scores(pipeline, [youtube_item, x_item])
+
+        pipeline.scorer.run_coarse.assert_called_once()
+        pipeline.scorer.run_deep.assert_called_once()
+        refreshed_youtube = next(item for item in refreshed if item.content_id == "youtube_weekly")
+        self.assertEqual(refreshed_youtube.ai_score["relevance"], 9)
+        self.assertEqual(refreshed_youtube.extra_metadata["score_stage"], "deep")
+        pipeline.transcript_store.save_many.assert_called_once()
 
     def test_daily_persists_invariant_warnings(self) -> None:
         pipeline = Pipeline.__new__(Pipeline)

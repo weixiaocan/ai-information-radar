@@ -443,6 +443,7 @@ class Pipeline:
     def weekly(self, items: list[ContentItem] | None = None, deliver: bool = True) -> dict:
         weekly_end_date = self._resolve_weekly_end_date()
         weekly_items = self._load_items_for_weekly_report(weekly_end_date)
+        weekly_items = self._ensure_weekly_tier2_scores(weekly_items)
         self.report_writer.write(weekly_items)
         payload = self.weekly_builder.build(weekly_items, target_end_date=weekly_end_date)
         report_path = self._write_weekly_report(weekly_items, target_end_date=weekly_end_date)
@@ -459,6 +460,47 @@ class Pipeline:
             },
         )
         return payload
+
+    def _ensure_weekly_tier2_scores(self, items: list[ContentItem]) -> list[ContentItem]:
+        youtube_items = [item for item in items if item.source_type == "youtube"]
+        if not youtube_items:
+            return items
+
+        mentions = compute_x_mentions(items)
+        items_by_id = {item.content_id: item for item in items}
+        youtube_by_id = {item.content_id: item for item in youtube_items}
+
+        coarse_candidates = [
+            item for item in youtube_items if str(item.extra_metadata.get("score_stage", "")).strip() != "deep"
+        ]
+        coarse_inputs = [
+            item for item in coarse_candidates if not item.ai_score or str(item.extra_metadata.get("score_stage", "")).strip() != "coarse"
+        ]
+        if coarse_inputs:
+            scored_coarse = self.scorer.run_coarse(coarse_inputs, mentions)
+            for item in scored_coarse:
+                youtube_by_id[item.content_id] = item
+                items_by_id[item.content_id] = item
+
+        ranked = sorted(
+            youtube_by_id.values(),
+            key=lambda item: score_total(item.ai_score or {}),
+            reverse=True,
+        )
+        finalists = ranked[: self.settings.tier2_candidate_count]
+        finalists_to_deepen = [
+            item for item in finalists if str(item.extra_metadata.get("score_stage", "")).strip() != "deep"
+        ]
+        if finalists_to_deepen:
+            finalists_with_transcripts = self._fetch_transcripts_for_finalists(finalists_to_deepen)
+            deep_scored = self.scorer.run_deep(finalists_with_transcripts, mentions)
+            for item in deep_scored:
+                youtube_by_id[item.content_id] = item
+                items_by_id[item.content_id] = item
+
+        refreshed_items = [items_by_id[item.content_id] for item in items]
+        self.transcript_store.save_many(refreshed_items)
+        return refreshed_items
 
     def publish_site(self, report_type: str = "all") -> dict[str, Any]:
         if self.site_publisher is None:
