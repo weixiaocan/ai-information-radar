@@ -70,7 +70,11 @@ function Register-AIRadarTask {
     }
 
     if ($Weekly) {
-        $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At $TriggerTime
+        $days = $DaysOfWeek.Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+        if (-not $days) {
+            throw "DaysOfWeek must be provided for weekly tasks."
+        }
+        $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek $days -At $TriggerTime
     }
     else {
         $trigger = New-ScheduledTaskTrigger -Daily -At $TriggerTime
@@ -96,5 +100,5 @@ Register-AIRadarTask -Name "Ingest" -TaskName "ingest" -TriggerTime $IngestTime
 Register-AIRadarTask -Name "Tier1" -TaskName "tier1" -TriggerTime $Tier1Time
 Register-AIRadarTask -Name "Daily Curate" -TaskName "daily-curate" -TriggerTime $DailyCurateTime
 Register-AIRadarTask -Name "Daily Digest" -TaskName "daily" -TriggerTime $DailyTime -Deliver
-Register-AIRadarTask -Name "Tier2" -TaskName "tier2" -TriggerTime $Tier2Time -Weekly
-Register-AIRadarTask -Name "Weekly Digest" -TaskName "weekly" -TriggerTime $WeeklyTime -Weekly -Deliver
+Register-AIRadarTask -Name "Tier2" -TaskName "tier2" -TriggerTime $Tier2Time -Weekly -DaysOfWeek "Sunday"
+Register-AIRadarTask -Name "Weekly Digest" -TaskName "weekly" -TriggerTime $WeeklyTime -Weekly -DaysOfWeek "Monday" -Deliver
