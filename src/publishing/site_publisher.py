@@ -70,26 +70,35 @@ class SitePublisher:
 
     def _push_with_retries(self) -> None:
         push_args = ("push", "origin", self.git_branch)
-        last_error: subprocess.CalledProcessError | None = None
+        last_error: subprocess.CalledProcessError | subprocess.TimeoutExpired | None = None
         total_attempts = len(self.push_retry_delays_seconds) + 1
 
         for attempt in range(1, total_attempts + 1):
             try:
                 self._run_git(*push_args)
                 return
-            except subprocess.CalledProcessError as exc:
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
                 last_error = exc
                 if attempt >= total_attempts:
                     break
                 time.sleep(self.push_retry_delays_seconds[attempt - 1])
 
         assert last_error is not None
-        stderr = (last_error.stderr or "").strip()
-        stdout = (last_error.stdout or "").strip()
-        detail = stderr or stdout or str(last_error)
+        detail = self._format_git_error(last_error)
         raise RuntimeError(
             f"git push failed after {total_attempts} attempts: {detail}"
         ) from last_error
+
+    def _format_git_error(self, error: subprocess.CalledProcessError | subprocess.TimeoutExpired) -> str:
+        stderr = str(getattr(error, "stderr", "") or "").strip()
+        stdout = str(getattr(error, "stdout", "") or "").strip()
+        if stderr:
+            return stderr
+        if stdout:
+            return stdout
+        if isinstance(error, subprocess.TimeoutExpired):
+            return f"timed out after {error.timeout} seconds"
+        return str(error)
 
     def _run_git(self, *args: str) -> str:
         completed = subprocess.run(
