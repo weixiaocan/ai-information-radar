@@ -31,6 +31,7 @@
 - Supported primary content sources in V1 are YouTube channels, YouTube playlists, RSS feeds, and web scrape sources.
 - Zara is not a primary article or podcast source in V1.
 - Zara is retained only as an upstream Builder/X signal source via `zara_x`.
+- `zara_x` is an upstream daily batch feed from `zarazhangrui/follow-builders` that is typically generated around 15:00-16:00 Asia/Shanghai and already covers the upstream recent 24-hour window; do not apply a second local `published_at` window filter to `zara_x`, and use only `seen_ids` incremental dedupe for this source.
 - Normalize all sources into a shared `ContentItem`.
 - Daily and weekly digests must be generated from normalized source content, not by rewriting previous digests.
 - `今日热议` is builder/X only.

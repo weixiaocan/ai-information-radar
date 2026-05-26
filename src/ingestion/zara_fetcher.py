@@ -79,9 +79,12 @@ class ZaraFetcher:
                 response.raise_for_status()
                 payload = response.json()
                 items: list[ContentItem] = []
+                apply_local_window = self._should_apply_local_time_window(feed_name)
                 for entry in self._extract_entries(feed_name, payload):
                     item = self._to_content_item(feed, entry)
-                    if item.content_id in seen_ids or item.published_at < cutoff or item.published_at >= window_end:
+                    if item.content_id in seen_ids:
+                        continue
+                    if apply_local_window and (item.published_at < cutoff or item.published_at >= window_end):
                         continue
                     items.append(item)
                 status = "success" if items else "empty"
@@ -150,6 +153,9 @@ class ZaraFetcher:
             return False
         elapsed_seconds = time.monotonic() - started_at
         return elapsed_seconds + next_delay_seconds >= self.retry_window_seconds
+
+    def _should_apply_local_time_window(self, feed_name: str) -> bool:
+        return feed_name != "zara_x"
 
     def _is_retryable_exception(self, exc: Exception) -> bool:
         if isinstance(exc, (requests.Timeout, requests.ConnectionError)):

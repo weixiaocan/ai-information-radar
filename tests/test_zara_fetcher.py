@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import Mock, patch
 
 import requests
@@ -23,6 +24,12 @@ class ZaraFetcherTest(unittest.TestCase):
             "name": "zara_x",
             "display_name": "Zara Follow Builders X",
             "url": "https://example.com/feed-x.json",
+            "enabled": True,
+        }
+        self.blog_feed = {
+            "name": "zara_blog",
+            "display_name": "Zara Blogs",
+            "url": "https://example.com/feed-blog.json",
             "enabled": True,
         }
 
@@ -96,3 +103,70 @@ class ZaraFetcherTest(unittest.TestCase):
         self.assertEqual(fetcher.last_fetch_reports[0].status, "timed_out")
         self.assertEqual(fetcher.last_fetch_reports[0].attempts, 2)
         self.assertEqual(_sleep.call_count, 1)
+
+    def test_zara_x_ignores_local_time_window_but_still_dedupes_seen_ids(self) -> None:
+        payload = {
+            "x": [
+                {
+                    "name": "Aaron Levie",
+                    "tweets": [
+                        {
+                            "id": "1",
+                            "text": "Older upstream batch item",
+                            "url": "https://x.com/levie/status/1",
+                            "createdAt": "2026-05-24T01:00:00.000Z",
+                        },
+                        {
+                            "id": "2",
+                            "text": "Already seen item",
+                            "url": "https://x.com/levie/status/2",
+                            "createdAt": "2026-05-24T02:00:00.000Z",
+                        },
+                    ],
+                }
+            ]
+        }
+        fetcher = ZaraFetcher([self.feed], timeout_seconds=30)
+        start_at = datetime(2026, 5, 25, 0, 0, tzinfo=timezone.utc)
+        end_at = datetime(2026, 5, 26, 0, 0, tzinfo=timezone.utc)
+
+        with patch("src.ingestion.zara_fetcher.requests.get", return_value=FakeResponse(payload)):
+            items = fetcher.fetch(
+                seen_ids={"zara_x_2"},
+                recent_days=1,
+                start_at=start_at,
+                end_at=end_at,
+            )
+
+        self.assertEqual([item.content_id for item in items], ["zara_x_1"])
+        self.assertEqual(fetcher.last_fetch_reports[0].status, "success")
+
+    def test_non_x_zara_feeds_still_apply_local_time_window(self) -> None:
+        payload = {
+            "blogs": [
+                {
+                    "id": "blog-1",
+                    "title": "Outside local window",
+                    "summary": "Should be filtered",
+                    "content": "Should be filtered",
+                    "url": "https://example.com/blog-1",
+                    "author": "Zara",
+                    "date": "2026-05-24T01:00:00.000Z",
+                    "type": "blog",
+                }
+            ]
+        }
+        fetcher = ZaraFetcher([self.blog_feed], timeout_seconds=30)
+        start_at = datetime(2026, 5, 25, 0, 0, tzinfo=timezone.utc)
+        end_at = datetime(2026, 5, 26, 0, 0, tzinfo=timezone.utc)
+
+        with patch("src.ingestion.zara_fetcher.requests.get", return_value=FakeResponse(payload)):
+            items = fetcher.fetch(
+                seen_ids=set(),
+                recent_days=1,
+                start_at=start_at,
+                end_at=end_at,
+            )
+
+        self.assertEqual(items, [])
+        self.assertEqual(fetcher.last_fetch_reports[0].status, "empty")
