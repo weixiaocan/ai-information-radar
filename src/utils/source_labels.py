@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from src.models.content_item import ContentItem
+from src.utils.config import load_yaml
 
 
 def get_original_source_name(item: ContentItem) -> str:
@@ -29,3 +31,21 @@ def resolve_zara_source_name(feed_name: str, entry: dict[str, Any]) -> str:
     if feed_name in {"zara_blog", "zara_podcast"}:
         return str(entry.get("name") or entry.get("author") or "").strip() or feed_name
     return feed_name
+
+
+def load_display_name_map(project_root: Path | None = None) -> dict[str, str]:
+    root = project_root or Path(__file__).resolve().parents[2]
+    channels_config = load_yaml(root / "config" / "channels.yaml")
+    sources = [
+        *channels_config.get("channels", []),
+        *channels_config.get("playlists", []),
+        *load_yaml(root / "config" / "rss_sources.yaml").get("sources", []),
+        *load_yaml(root / "config" / "web_sources.yaml").get("sources", []),
+    ]
+    mapping: dict[str, str] = {}
+    for source in sources:
+        name = str(source.get("name", "")).strip()
+        display_name = str(source.get("display_name", "")).strip()
+        if name and display_name:
+            mapping[name] = display_name
+    return mapping

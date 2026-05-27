@@ -4,10 +4,8 @@ import logging
 import re
 from datetime import date
 from difflib import SequenceMatcher
-from pathlib import Path
 from typing import Any
 
-from src.utils.config import load_yaml
 from src.utils.daily_state import (
     builder_candidate_copy,
     builder_candidate_decision,
@@ -19,13 +17,14 @@ from src.utils.daily_state import (
     theme_copy,
     theme_decision,
 )
+from src.utils.source_labels import load_display_name_map
 
 LOGGER = logging.getLogger(__name__)
 
 
 class DailyDigestBuilder:
     def __init__(self) -> None:
-        self.display_name_map = self._load_display_name_map()
+        self.display_name_map = load_display_name_map()
 
     def _strip_leading_punctuation(self, text: str) -> str:
         return re.sub(r"^[,，:：;；、\.\s]+", "", text).strip()
@@ -589,35 +588,6 @@ class DailyDigestBuilder:
 
     def _get_display_name(self, source_name: str) -> str:
         return self.display_name_map.get(source_name, self._fallback_display_name(source_name))
-
-    def _load_display_name_map(self) -> dict[str, str]:
-        project_root = Path(__file__).resolve().parents[2]
-        channels = load_yaml(project_root / "config" / "channels.yaml").get("channels", [])
-        playlists = load_yaml(project_root / "config" / "channels.yaml").get("playlists", [])
-        rss_sources = load_yaml(project_root / "config" / "rss_sources.yaml").get("sources", [])
-        web_sources = load_yaml(project_root / "config" / "web_sources.yaml").get("sources", [])
-        mapping: dict[str, str] = {}
-        for channel in channels:
-            name = str(channel.get("name", "")).strip()
-            display_name = str(channel.get("display_name", "")).strip()
-            if name and display_name:
-                mapping[name] = display_name
-        for playlist in playlists:
-            name = str(playlist.get("name", "")).strip()
-            display_name = str(playlist.get("display_name", "")).strip()
-            if name and display_name:
-                mapping[name] = display_name
-        for source in rss_sources:
-            name = str(source.get("name", "")).strip()
-            display_name = str(source.get("display_name", "")).strip()
-            if name and display_name:
-                mapping[name] = display_name
-        for source in web_sources:
-            name = str(source.get("name", "")).strip()
-            display_name = str(source.get("display_name", "")).strip()
-            if name and display_name:
-                mapping[name] = display_name
-        return mapping
 
     def _fallback_display_name(self, source_name: str) -> str:
         if " " in source_name or any(char.isupper() for char in source_name):

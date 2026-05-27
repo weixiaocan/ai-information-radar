@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Iterable
 
 from src.models.content_item import ContentItem
+from src.utils.atomic_file import atomic_write_text
 from src.utils.slugify import slugify
 
 
@@ -19,7 +20,7 @@ class TranscriptStore:
         day_dir.mkdir(parents=True, exist_ok=True)
         filename = f"{slugify(item.source_name)}_{slugify(item.title, fallback=item.content_id)}.md"
         path = day_dir / filename
-        path.write_text(self._render_markdown(item), encoding="utf-8")
+        atomic_write_text(path, self._render_markdown(item), encoding="utf-8")
         return path
 
     def save_many(self, items: Iterable[ContentItem]) -> list[Path]:

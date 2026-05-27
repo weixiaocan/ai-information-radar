@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from src.models.content_item import ContentItem
@@ -57,7 +57,7 @@ class Tier2Scorer:
                     "reasons": item.ai_score_reasons,
                     "one_line_pitch": score_payload.get("one_line_pitch"),
                     "rank": None,
-                    "scored_at": datetime.utcnow().isoformat(),
+                    "scored_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
         return items

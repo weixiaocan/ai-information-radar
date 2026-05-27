@@ -7,7 +7,7 @@ import re
 import sys
 from datetime import datetime
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 from urllib.request import getproxies
 
 import requests
@@ -262,13 +262,13 @@ class YouTubeFetcher:
             "https_proxy",
             "no_proxy",
         ]
-        env_proxies = {key: os.getenv(key, "") for key in env_proxy_keys if os.getenv(key)}
+        env_proxies = {key: "<set>" for key in env_proxy_keys if os.getenv(key)}
         try:
-            effective_proxies = requests.utils.get_environ_proxies(target_url)
+            effective_proxies = _redact_proxy_mapping(requests.utils.get_environ_proxies(target_url))
         except Exception as exc:
             effective_proxies = {"error": str(exc)}
         try:
-            registry_proxies = getproxies()
+            registry_proxies = _redact_proxy_mapping(getproxies())
         except Exception as exc:
             registry_proxies = {"error": str(exc)}
 
@@ -326,3 +326,20 @@ def _iso_duration_to_seconds(duration: str) -> int:
     minutes = int(match.group("minutes") or 0)
     seconds = int(match.group("seconds") or 0)
     return hours * 3600 + minutes * 60 + seconds
+
+
+def _redact_proxy_mapping(proxies: dict[str, str]) -> dict[str, str]:
+    return {key: _redact_proxy_url(value) for key, value in proxies.items()}
+
+
+def _redact_proxy_url(value: str) -> str:
+    parsed = urlparse(value)
+    if not parsed.scheme or not parsed.netloc:
+        return "<set>"
+    host = parsed.hostname or ""
+    try:
+        port = f":{parsed.port}" if parsed.port else ""
+    except ValueError:
+        port = ""
+    userinfo = "<redacted>@" if parsed.username or parsed.password else ""
+    return urlunparse((parsed.scheme, f"{userinfo}{host}{port}", "", "", "", ""))

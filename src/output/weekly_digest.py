@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
-from pathlib import Path
 from typing import Any
 
 from src.models.content_item import ContentItem
 from src.processing.tier2_score import score_total
-from src.utils.config import load_yaml
 from src.utils.llm_client import DeepSeekClient
-from src.utils.source_labels import get_original_source_name
+from src.utils.source_labels import get_original_source_name, load_display_name_map
 
 
 class WeeklyDigestBuilder:
@@ -16,7 +14,7 @@ class WeeklyDigestBuilder:
         self.client = client
         self.pitch_prompt_path = pitch_prompt_path
         self.themes_prompt_path = themes_prompt_path
-        self.display_name_map = self._load_display_name_map()
+        self.display_name_map = load_display_name_map()
 
     def build(self, items: list[ContentItem], target_end_date: date | None = None) -> dict[str, Any]:
         top_payloads = self._build_top_payloads(items)
@@ -249,35 +247,6 @@ class WeeklyDigestBuilder:
 
     def _get_display_name(self, source_name: str) -> str:
         return self.display_name_map.get(source_name, self._fallback_display_name(source_name))
-
-    def _load_display_name_map(self) -> dict[str, str]:
-        project_root = Path(__file__).resolve().parents[2]
-        channels = load_yaml(project_root / "config" / "channels.yaml").get("channels", [])
-        playlists = load_yaml(project_root / "config" / "channels.yaml").get("playlists", [])
-        rss_sources = load_yaml(project_root / "config" / "rss_sources.yaml").get("sources", [])
-        web_sources = load_yaml(project_root / "config" / "web_sources.yaml").get("sources", [])
-        mapping: dict[str, str] = {}
-        for channel in channels:
-            name = str(channel.get("name", "")).strip()
-            display_name = str(channel.get("display_name", "")).strip()
-            if name and display_name:
-                mapping[name] = display_name
-        for playlist in playlists:
-            name = str(playlist.get("name", "")).strip()
-            display_name = str(playlist.get("display_name", "")).strip()
-            if name and display_name:
-                mapping[name] = display_name
-        for source in rss_sources:
-            name = str(source.get("name", "")).strip()
-            display_name = str(source.get("display_name", "")).strip()
-            if name and display_name:
-                mapping[name] = display_name
-        for source in web_sources:
-            name = str(source.get("name", "")).strip()
-            display_name = str(source.get("display_name", "")).strip()
-            if name and display_name:
-                mapping[name] = display_name
-        return mapping
 
     def _fallback_display_name(self, source_name: str) -> str:
         if " " in source_name or any(char.isupper() for char in source_name):

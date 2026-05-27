@@ -9,6 +9,7 @@ from src.utils.daily_state import (
     normalize_daily_selections_payload,
     normalize_daily_themes_payload,
 )
+from src.utils.atomic_file import atomic_write_text
 from src.utils.time_utils import utc_now
 
 
@@ -47,7 +48,8 @@ class StateManager:
         return set(json.loads(self.seen_ids_path.read_text(encoding="utf-8")))
 
     def save_seen_ids(self, seen_ids: set[str]) -> None:
-        self.seen_ids_path.write_text(
+        atomic_write_text(
+            self.seen_ids_path,
             json.dumps(sorted(seen_ids), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
@@ -74,7 +76,8 @@ class StateManager:
             handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
     def save_latest_source_statuses(self, payload: dict[str, Any]) -> None:
-        self.source_status_path.write_text(
+        atomic_write_text(
+            self.source_status_path,
             json.dumps(payload, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
@@ -86,7 +89,7 @@ class StateManager:
 
     def save_stage_content_ids(self, stage: str, content_ids: list[str]) -> None:
         path = self.stage_batches[stage]
-        path.write_text(json.dumps(content_ids, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_text(path, json.dumps(content_ids, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def load_stage_content_ids(self, stage: str) -> list[str]:
         path = self.stage_batches[stage]
@@ -96,7 +99,7 @@ class StateManager:
 
     def save_latest_window(self, window_name: str, payload: dict[str, Any]) -> None:
         path = self.window_batches[window_name]
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def load_latest_window(self, window_name: str) -> dict[str, Any]:
         path = self.window_batches[window_name]
@@ -124,11 +127,13 @@ class StateManager:
             "artifacts": {},
             "degraded": {},
         }
-        self._manifest_path(day, run_id).write_text(
+        atomic_write_text(
+            self._manifest_path(day, run_id),
             json.dumps(manifest, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-        self._latest_run_pointer_path(day).write_text(
+        atomic_write_text(
+            self._latest_run_pointer_path(day),
             json.dumps({"run_id": run_id, "updated_at": manifest["updated_at"]}, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
@@ -154,7 +159,8 @@ class StateManager:
         merged["run_id"] = run_id
         merged["target_day"] = day
         merged["updated_at"] = utc_now().isoformat()
-        self._manifest_path(day, run_id).write_text(
+        atomic_write_text(
+            self._manifest_path(day, run_id),
             json.dumps(merged, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
@@ -209,7 +215,8 @@ class StateManager:
                 "degraded": degraded,
             },
         )
-        self._latest_run_pointer_path(day).write_text(
+        atomic_write_text(
+            self._latest_run_pointer_path(day),
             json.dumps({"run_id": run_id, "updated_at": utc_now().isoformat()}, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
@@ -221,7 +228,7 @@ class StateManager:
         else:
             path = self._daily_run_dir(day, run_id) / "themes.json"
             path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_text(path, json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def load_daily_themes(self, day: str, run_id: str | None = None) -> dict[str, Any]:
         if run_id is None:
@@ -242,7 +249,7 @@ class StateManager:
         else:
             path = self._daily_run_dir(day, run_id) / "selections.json"
             path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_text(path, json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def load_daily_selections(self, day: str, run_id: str | None = None) -> dict[str, Any]:
         if run_id is None:
@@ -263,7 +270,7 @@ class StateManager:
         else:
             path = self._daily_run_dir(day, run_id) / "candidates.json"
             path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_text(path, json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def load_daily_candidates(self, day: str, run_id: str | None = None) -> dict[str, Any]:
         if run_id is None:

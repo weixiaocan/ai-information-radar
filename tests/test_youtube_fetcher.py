@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime, timezone
 
-from src.ingestion.youtube_fetcher import YouTubeFetcher
+from src.ingestion.youtube_fetcher import YouTubeFetcher, _redact_proxy_url
 
 
 class _StubYouTubeFetcher(YouTubeFetcher):
@@ -49,6 +49,12 @@ class _StubYouTubeFetcher(YouTubeFetcher):
 
 
 class YouTubeFetcherTest(unittest.TestCase):
+    def test_proxy_url_redaction_removes_credentials(self) -> None:
+        redacted = _redact_proxy_url("http://user:secret@example.com:8080")
+
+        self.assertEqual(redacted, "http://<redacted>@example.com:8080")
+        self.assertNotIn("secret", redacted)
+
     def test_fetch_continues_after_channel_failure(self) -> None:
         fetcher = _StubYouTubeFetcher()
 
@@ -59,6 +65,8 @@ class YouTubeFetcherTest(unittest.TestCase):
             ],
             seen_ids=set(),
             recent_days=7,
+            start_at=datetime(2026, 5, 17, tzinfo=timezone.utc),
+            end_at=datetime(2026, 5, 18, tzinfo=timezone.utc),
         )
 
         self.assertEqual(len(items), 1)
@@ -75,6 +83,8 @@ class YouTubeFetcherTest(unittest.TestCase):
             ],
             seen_ids=set(),
             recent_days=7,
+            start_at=datetime(2026, 5, 17, tzinfo=timezone.utc),
+            end_at=datetime(2026, 5, 18, tzinfo=timezone.utc),
         )
 
         self.assertEqual(len(items), 1)
