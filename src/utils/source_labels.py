@@ -22,6 +22,9 @@ def get_original_source_name(item: ContentItem) -> str:
             or str(item.author or "").strip()
             or item.source_name
         )
+    display_name = str(item.extra_metadata.get("display_name", "")).strip()
+    if display_name:
+        return display_name
     return item.source_name
 
 
@@ -41,6 +44,7 @@ def load_display_name_map(project_root: Path | None = None) -> dict[str, str]:
         *channels_config.get("playlists", []),
         *load_yaml(root / "config" / "rss_sources.yaml").get("sources", []),
         *load_yaml(root / "config" / "web_sources.yaml").get("sources", []),
+        *load_yaml(root / "config" / "newsletter_sources.yaml").get("sources", []),
     ]
     mapping: dict[str, str] = {}
     for source in sources:

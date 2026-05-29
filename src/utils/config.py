@@ -17,6 +17,8 @@ class Settings:
     supadata_api_key: str
     deepseek_base_url: str
     feishu_webhook_url: str
+    gmail_credentials_path: Path | None = None
+    gmail_token_path: Path | None = None
     site_publish_enabled: bool = False
     site_repo_path: Path | None = None
     site_git_branch: str = "main"
@@ -44,6 +46,8 @@ def load_settings(project_root: Path | None = None) -> Settings:
         supadata_api_key=os.getenv("SUPADATA_API_KEY", ""),
         deepseek_base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
         feishu_webhook_url=os.getenv("FEISHU_WEBHOOK_URL", ""),
+        gmail_credentials_path=_resolve_optional_path(root, os.getenv("GMAIL_CREDENTIALS_PATH", "")),
+        gmail_token_path=_resolve_optional_path(root, os.getenv("GMAIL_TOKEN_PATH", "")),
         site_publish_enabled=os.getenv("SITE_PUBLISH_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"},
         site_repo_path=_resolve_optional_path(root, os.getenv("SITE_REPO_PATH", "..\\ai-radar-site")),
         site_git_branch=os.getenv("SITE_GIT_BRANCH", "main"),

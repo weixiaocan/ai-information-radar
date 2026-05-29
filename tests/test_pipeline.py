@@ -15,6 +15,42 @@ from src.utils.daily_state import builder_candidate_copy, builder_candidate_deci
 
 
 class PipelineHelpersTest(unittest.TestCase):
+    def test_safe_fetch_newsletters_passes_gmail_settings_and_window(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline.state_manager = Mock()
+        pipeline.settings = Mock(
+            gmail_credentials_path=Path("credentials.json"),
+            gmail_token_path=Path("token.json"),
+            request_timeout_seconds=30,
+        )
+        fetcher_instance = Mock()
+        fetcher_instance.fetch.return_value = ["newsletter-item"]
+        fetcher_cls = Mock(return_value=fetcher_instance)
+        start_at = datetime(2026, 5, 28, 23, tzinfo=timezone.utc)
+        end_at = datetime(2026, 5, 29, 23, tzinfo=timezone.utc)
+        sources = [{"name": "every", "query": "from:hello@every.to"}]
+        seen_ids = {"newsletter_email_seen"}
+
+        result = Pipeline._safe_fetch_newsletters(
+            pipeline,
+            fetcher_cls,
+            sources,
+            seen_ids,
+            recent_days=1,
+            start_at=start_at,
+            end_at=end_at,
+        )
+
+        self.assertEqual(result, ["newsletter-item"])
+        fetcher_cls.assert_called_once_with(Path("credentials.json"), Path("token.json"), 30)
+        fetcher_instance.fetch.assert_called_once_with(
+            sources,
+            seen_ids,
+            1,
+            start_at=start_at,
+            end_at=end_at,
+        )
+
     def test_resolve_daily_target_date_prefers_previous_local_day(self) -> None:
         pipeline = Pipeline.__new__(Pipeline)
         pipeline.transcript_store = Mock()

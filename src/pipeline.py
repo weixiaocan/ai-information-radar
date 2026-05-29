@@ -95,6 +95,7 @@ class Pipeline:
         self._last_zara_fetch_reports: list[Any] = []
 
     def ingest(self, recent_days_override: int | None = None, ignore_seen: bool = False) -> list[ContentItem]:
+        from src.ingestion.gmail_newsletter_fetcher import GmailNewsletterFetcher
         from src.ingestion.rss_fetcher import RSSFetcher
         from src.ingestion.web_fetcher import WebFetcher
         from src.ingestion.youtube_fetcher import YouTubeFetcher
@@ -122,6 +123,7 @@ class Pipeline:
         playlists = channel_config.get("playlists", [])
         rss_sources = load_yaml(self.settings.project_root / "config" / "rss_sources.yaml").get("sources", [])
         web_sources = load_yaml(self.settings.project_root / "config" / "web_sources.yaml").get("sources", [])
+        newsletter_sources = load_yaml(self.settings.project_root / "config" / "newsletter_sources.yaml").get("sources", [])
         zara_feeds = [
             feed
             for feed in load_yaml(self.settings.project_root / "config" / "zara_feed.yaml").get("feeds", [])
@@ -146,6 +148,14 @@ class Pipeline:
         )
         rss_items = self._safe_fetch_rss(RSSFetcher, rss_sources, effective_seen_ids, recent_days, window_start, window_end)
         web_items = self._safe_fetch_web(WebFetcher, web_sources, effective_seen_ids, recent_days, window_start, window_end)
+        newsletter_items = self._safe_fetch_newsletters(
+            GmailNewsletterFetcher,
+            newsletter_sources,
+            effective_seen_ids,
+            recent_days,
+            window_start,
+            window_end,
+        )
         zara_items = self._safe_fetch_zara(
             ZaraFetcher,
             zara_feeds,
@@ -159,7 +169,7 @@ class Pipeline:
                 "zara_x": self._summarize_zara_source_status("zara_x"),
             }
         )
-        items = youtube_items + playlist_items + rss_items + web_items + zara_items
+        items = youtube_items + playlist_items + rss_items + web_items + newsletter_items + zara_items
         self.transcript_store.save_many(items)
         seen_ids.update(item.content_id for item in items)
         self.state_manager.save_seen_ids(seen_ids)
@@ -607,6 +617,31 @@ class Pipeline:
             )
         except Exception as exc:
             self.state_manager.write_heartbeat("ingest_warning", {"source": "web", "error": str(exc)})
+            return []
+
+    def _safe_fetch_newsletters(
+        self,
+        fetcher_cls,
+        newsletter_sources: list[dict],
+        seen_ids: set[str],
+        recent_days: int,
+        start_at: datetime | None = None,
+        end_at: datetime | None = None,
+    ) -> list[ContentItem]:
+        try:
+            return fetcher_cls(
+                self.settings.gmail_credentials_path,
+                self.settings.gmail_token_path,
+                self.settings.request_timeout_seconds,
+            ).fetch(
+                newsletter_sources,
+                seen_ids,
+                recent_days,
+                start_at=start_at,
+                end_at=end_at,
+            )
+        except Exception as exc:
+            self.state_manager.write_heartbeat("ingest_warning", {"source": "newsletter_email", "error": str(exc)})
             return []
 
     def _safe_fetch_zara(

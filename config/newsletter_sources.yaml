@@ -1,0 +1,9 @@
+sources:
+  - name: every
+    display_name: Every
+    query: "from:hello@every.to"
+    enabled: true
+  - name: ai_valley
+    display_name: AI Valley
+    query: "from:aivalley@mail.beehiiv.com"
+    enabled: true
