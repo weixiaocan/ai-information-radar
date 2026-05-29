@@ -292,6 +292,8 @@ class DailyCandidateBuilder:
             title = str(candidate.get("title", "")).strip()
             if not all([content_id, url, source_name, title, summary]):
                 continue
+            if self._is_low_signal_editorial_candidate(candidate):
+                continue
             if content_id in seen_content_ids or url in seen_urls:
                 continue
 
@@ -320,6 +322,28 @@ class DailyCandidateBuilder:
             topic_indexes[topic_key] = len(filtered) - 1
 
         return filtered
+
+    def _is_low_signal_editorial_candidate(self, candidate: dict[str, Any]) -> bool:
+        source_type = str(candidate.get("source_type", "")).strip()
+        source_name = str(candidate.get("channel_or_source", "")).strip().lower()
+        if source_type != "newsletter_email" or source_name != "every":
+            return False
+        title = str(candidate.get("title", "")).lower()
+        low_signal_terms = [
+            "you're invited",
+            "you’re invited",
+            "digital event",
+            "digital events",
+            "irl",
+            "live camp",
+            "workshop",
+            "webinar",
+            "office hours",
+            "save your spot",
+            "rsvp",
+            "ny tech week",
+        ]
+        return any(term in title for term in low_signal_terms)
 
     def _rank_editorial_candidates(self, candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
         scored: list[dict[str, Any]] = []

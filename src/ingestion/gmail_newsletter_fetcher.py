@@ -64,6 +64,8 @@ class GmailNewsletterFetcher:
                 except Exception as exc:
                     LOGGER.warning("Failed to read Gmail newsletter message %s: %s", message_id, exc)
                     continue
+                if self._is_low_signal_newsletter(item):
+                    continue
                 if item.published_at < cutoff or item.published_at >= window_end:
                     continue
                 results.append(item)
@@ -242,6 +244,26 @@ class GmailNewsletterFetcher:
         except Exception:
             return ""
         return str(data.get("url", "")).strip()
+
+    def _is_low_signal_newsletter(self, item: ContentItem) -> bool:
+        if item.source_name != "every":
+            return False
+        title = item.title.lower()
+        low_signal_terms = [
+            "you're invited",
+            "you’re invited",
+            "digital event",
+            "digital events",
+            "irl",
+            "live camp",
+            "workshop",
+            "webinar",
+            "office hours",
+            "save your spot",
+            "rsvp",
+            "ny tech week",
+        ]
+        return any(term in title for term in low_signal_terms)
 
 
 class _RequestsGmailService:

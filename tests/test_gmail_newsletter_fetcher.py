@@ -125,6 +125,35 @@ class GmailNewsletterFetcherTest(unittest.TestCase):
         self.assertIn("after:2026/05/27", service.messages_api.queries[0])
         self.assertIn("before:2026/05/30", service.messages_api.queries[0])
 
+    def test_fetch_skips_every_event_invites(self) -> None:
+        service = _Service(
+            {
+                "event": _message(
+                    "event",
+                    "You’re invited: Every 🤝 IRL + 2 digital events",
+                    "Join us at the Every brownstone.",
+                    datetime(2026, 5, 28, 13, tzinfo=timezone.utc),
+                ),
+                "article": _message(
+                    "article",
+                    "Vibe Check: Opus 4.8",
+                    "Anthropic is back.",
+                    datetime(2026, 5, 28, 17, tzinfo=timezone.utc),
+                ),
+            }
+        )
+        fetcher = GmailNewsletterFetcher(None, None, timeout_seconds=30, service=service)
+
+        items = fetcher.fetch(
+            [{"name": "every", "display_name": "Every", "query": "from:hello@every.to"}],
+            seen_ids=set(),
+            recent_days=1,
+            start_at=datetime(2026, 5, 28, 0, tzinfo=timezone.utc),
+            end_at=datetime(2026, 5, 29, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual([item.content_id for item in items], ["newsletter_email_article"])
+
 
 if __name__ == "__main__":
     unittest.main()

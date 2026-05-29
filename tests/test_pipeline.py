@@ -535,6 +535,35 @@ class PipelineHelpersTest(unittest.TestCase):
         self.assertEqual(len(filtered), 2)
         self.assertEqual([item["content_id"] for item in filtered], ["rss_2", "rss_3"])
 
+    def test_daily_candidate_builder_filters_every_event_newsletters(self) -> None:
+        builder = DailyCandidateBuilder(client=Mock(), signal_prompt_path=Path("prompts/theme_signal_extractor.md"))
+        raw_candidates = [
+            {
+                "content_id": "newsletter_event",
+                "type": "article",
+                "channel_or_source": "Every",
+                "title": "You’re invited: Every 🤝 IRL + 2 digital events",
+                "url": "https://mail.google.com/mail/#all/event",
+                "summary": "Every 邀请订阅者参加纽约科技周线下聚会及两场线上活动。",
+                "keywords": ["Every", "event"],
+                "source_type": "newsletter_email",
+            },
+            {
+                "content_id": "newsletter_article",
+                "type": "article",
+                "channel_or_source": "Every",
+                "title": "Vibe Check: Opus 4.8",
+                "url": "https://mail.google.com/mail/#all/article",
+                "summary": "Anthropic is back with a stronger model.",
+                "keywords": ["Anthropic", "Opus"],
+                "source_type": "newsletter_email",
+            },
+        ]
+
+        filtered = builder._filter_editorial_candidates(raw_candidates)
+
+        self.assertEqual([item["content_id"] for item in filtered], ["newsletter_article"])
+
     def test_daily_candidate_builder_filters_package_family_release_duplicates(self) -> None:
         builder = DailyCandidateBuilder(client=Mock(), signal_prompt_path=Path("prompts/theme_signal_extractor.md"))
         raw_candidates = [
