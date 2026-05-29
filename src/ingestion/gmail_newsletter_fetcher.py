@@ -76,11 +76,9 @@ class GmailNewsletterFetcher:
 
         try:
             from google.auth.transport.requests import Request
+            from google.auth.transport.requests import AuthorizedSession
             from google.oauth2.credentials import Credentials
             from google_auth_oauthlib.flow import InstalledAppFlow
-            from googleapiclient.discovery import build
-            from google_auth_httplib2 import AuthorizedHttp
-            import httplib2
         except ImportError as exc:
             raise RuntimeError("Install google-auth-oauthlib to enable Gmail newsletter ingestion.") from exc
 
@@ -97,8 +95,7 @@ class GmailNewsletterFetcher:
                 credentials = flow.run_local_server(port=0)
             self.token_path.parent.mkdir(parents=True, exist_ok=True)
             self.token_path.write_text(credentials.to_json(), encoding="utf-8")
-        http = AuthorizedHttp(credentials, http=httplib2.Http(timeout=self.timeout_seconds))
-        return build("gmail", "v1", http=http, cache_discovery=False)
+        return _RequestsGmailService(AuthorizedSession(credentials), self.timeout_seconds)
 
     def _build_query(self, source: dict[str, Any], start_at: datetime, end_at: datetime) -> str:
         base_query = str(source.get("query", "")).strip()
@@ -245,3 +242,71 @@ class GmailNewsletterFetcher:
         except Exception:
             return ""
         return str(data.get("url", "")).strip()
+
+
+class _RequestsGmailService:
+    def __init__(self, session: Any, timeout_seconds: int) -> None:
+        self.session = session
+        self.timeout_seconds = timeout_seconds
+
+    def users(self) -> "_RequestsGmailUsers":
+        return _RequestsGmailUsers(self.session, self.timeout_seconds)
+
+
+class _RequestsGmailUsers:
+    def __init__(self, session: Any, timeout_seconds: int) -> None:
+        self.session = session
+        self.timeout_seconds = timeout_seconds
+
+    def messages(self) -> "_RequestsGmailMessages":
+        return _RequestsGmailMessages(self.session, self.timeout_seconds)
+
+
+class _RequestsGmailMessages:
+    def __init__(self, session: Any, timeout_seconds: int) -> None:
+        self.session = session
+        self.timeout_seconds = timeout_seconds
+
+    def list(self, **kwargs: Any) -> "_RequestsGmailRequest":
+        user_id = kwargs.get("userId", "me")
+        params = {
+            "q": kwargs.get("q", ""),
+            "maxResults": kwargs.get("maxResults", 100),
+        }
+        if kwargs.get("pageToken"):
+            params["pageToken"] = kwargs["pageToken"]
+        return _RequestsGmailRequest(
+            self.session,
+            f"https://gmail.googleapis.com/gmail/v1/users/{user_id}/messages",
+            self.timeout_seconds,
+            params=params,
+        )
+
+    def get(self, **kwargs: Any) -> "_RequestsGmailRequest":
+        user_id = kwargs.get("userId", "me")
+        message_id = kwargs["id"]
+        return _RequestsGmailRequest(
+            self.session,
+            f"https://gmail.googleapis.com/gmail/v1/users/{user_id}/messages/{message_id}",
+            self.timeout_seconds,
+            params={"format": kwargs.get("format", "full")},
+        )
+
+
+class _RequestsGmailRequest:
+    def __init__(
+        self,
+        session: Any,
+        url: str,
+        timeout_seconds: int,
+        params: dict[str, Any] | None = None,
+    ) -> None:
+        self.session = session
+        self.url = url
+        self.timeout_seconds = timeout_seconds
+        self.params = params or {}
+
+    def execute(self) -> dict[str, Any]:
+        response = self.session.get(self.url, params=self.params, timeout=self.timeout_seconds)
+        response.raise_for_status()
+        return response.json()
