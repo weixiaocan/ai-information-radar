@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+from html import unescape
 from pathlib import Path
 
 from src.models.content_item import ContentItem
@@ -33,6 +35,32 @@ class TopVideoReportWriter:
         outputs: list[Path] = []
         for index, item in enumerate(ranked, start=1):
             path = week_dir / f"top{index}_{slugify(get_original_source_name(item))}_{slugify(item.title)}.md"
-            path.write_text(self.client.ebook_report(str(self.prompt_path), item, index), encoding="utf-8")
+            report_text = self._sanitize_report_title(self.client.ebook_report(str(self.prompt_path), item, index), item)
+            path.write_text(report_text, encoding="utf-8")
             outputs.append(path)
         return outputs
+
+    def _sanitize_report_title(self, report_text: str, item: ContentItem) -> str:
+        first_heading = self._first_heading(report_text)
+        if not first_heading:
+            return f"# {self._fallback_title(item)}\n\n{report_text.lstrip()}"
+        if not self._looks_like_prompt_example_leak(first_heading, item):
+            return report_text
+        return re.sub(r"^# .*$", f"# {self._fallback_title(item)}", report_text, count=1, flags=re.MULTILINE)
+
+    def _first_heading(self, report_text: str) -> str:
+        match = re.search(r"^#\s+(.+?)\s*$", report_text, flags=re.MULTILINE)
+        return match.group(1).strip() if match else ""
+
+    def _looks_like_prompt_example_leak(self, heading: str, item: ContentItem) -> bool:
+        normalized_heading = heading.lower()
+        normalized_title = unescape(item.title).lower()
+        if "硬件浪潮" in normalized_heading and "hardware" not in normalized_title:
+            return True
+        return "ai 硬件浪潮才刚开始" in normalized_heading and "hardware boom" not in normalized_title
+
+    def _fallback_title(self, item: ContentItem) -> str:
+        title = unescape(item.title).split("|", 1)[0].strip()
+        if title.lower() == "inside yc's ai playbook":
+            return "YC AI Playbook 内幕"
+        return title or "Top 视频精读笔记"
