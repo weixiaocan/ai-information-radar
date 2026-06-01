@@ -40,7 +40,13 @@ class SourceRetryTest(unittest.TestCase):
             ) as mock_get,
             patch("src.ingestion.rss_fetcher.feedparser.parse", return_value=Mock(entries=[])),
         ):
-            items = fetcher.fetch([source], seen_ids=set(), recent_days=7)
+            items = fetcher.fetch(
+                [source],
+                seen_ids=set(),
+                recent_days=7,
+                start_at=datetime(2026, 5, 16, tzinfo=timezone.utc),
+                end_at=datetime(2026, 5, 18, tzinfo=timezone.utc),
+            )
 
         self.assertEqual(items, [])
         self.assertEqual(mock_get.call_count, 2)
@@ -72,7 +78,13 @@ class SourceRetryTest(unittest.TestCase):
                 _TextResponse("<html><body>Article A</body></html>"),
             ],
         ) as mock_get:
-            items = fetcher.fetch([source], seen_ids=set(), recent_days=7)
+            items = fetcher.fetch(
+                [source],
+                seen_ids=set(),
+                recent_days=7,
+                start_at=datetime(2026, 5, 16, tzinfo=timezone.utc),
+                end_at=datetime(2026, 5, 18, tzinfo=timezone.utc),
+            )
 
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].content_id, "web_https://example.com/posts/article-a")
