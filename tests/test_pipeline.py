@@ -383,6 +383,60 @@ class PipelineHelpersTest(unittest.TestCase):
         pipeline.state_manager.load_daily_themes.assert_called_once_with("2026-05-03", "run-123")
         pipeline.state_manager.load_daily_selections.assert_called_once_with("2026-05-03", "run-123")
 
+    def test_daily_blocks_delivery_when_latest_curate_run_is_incomplete(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        target_item = ContentItem(
+            content_id="rss_target",
+            source_type="rss",
+            source_name="simon_willison",
+            title="Target",
+            url="https://example.com/target",
+            author="Simon",
+            published_at=datetime(2026, 5, 3, 12, tzinfo=timezone.utc),
+            fetched_at=datetime(2026, 5, 4, 1, tzinfo=timezone.utc),
+            body="Target body",
+            body_type="article",
+        )
+        pipeline._load_stage_items = Mock(return_value=[target_item])
+        pipeline.transcript_store = Mock()
+        pipeline.transcript_store.load_available_dates.return_value = [date(2026, 5, 3)]
+        pipeline.transcript_store.load_by_date.return_value = [target_item]
+        pipeline.state_manager = Mock()
+        pipeline.state_manager.load_latest_window.return_value = {}
+        pipeline.state_manager.resolve_latest_daily_run_id.return_value = "run-123"
+        pipeline.state_manager.load_daily_manifest.return_value = {
+            "run_id": "run-123",
+            "target_day": "2026-05-03",
+            "status": "curating",
+            "artifacts": {},
+        }
+        pipeline.state_manager.write_heartbeat = Mock()
+        pipeline.daily_builder = Mock()
+        pipeline._write_daily_report = Mock()
+        pipeline.feishu = Mock()
+        pipeline.site_publisher = None
+
+        with unittest.mock.patch("src.pipeline.date") as mock_date:
+            mock_date.today.return_value = date(2026, 5, 4)
+            mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+            payload = Pipeline.daily(pipeline, deliver=True)
+
+        self.assertEqual(payload["status"], "blocked")
+        self.assertEqual(payload["reason"], "daily_curate_incomplete")
+        pipeline.daily_builder.build.assert_not_called()
+        pipeline._write_daily_report.assert_not_called()
+        pipeline.feishu.send.assert_not_called()
+        pipeline.state_manager.write_heartbeat.assert_called_once_with(
+            "daily_blocked_curate_incomplete",
+            {
+                "status": "blocked",
+                "reason": "daily_curate_incomplete",
+                "day": "2026-05-03",
+                "run_id": "run-123",
+                "items": 1,
+            },
+        )
+
     def test_compute_x_mentions_matches_video_id_and_url(self) -> None:
         youtube_item = ContentItem(
             content_id="youtube_abc",
@@ -1260,9 +1314,9 @@ class PipelineHelpersTest(unittest.TestCase):
         payload = Pipeline.daily_curate(pipeline)
 
         self.assertEqual(payload["run_id"], "run-123")
-        pipeline.state_manager.save_daily_candidates.assert_called_once_with("2026-05-03", unittest.mock.ANY, "run-123")
-        pipeline.state_manager.save_daily_themes.assert_called_once_with("2026-05-03", unittest.mock.ANY, "run-123")
-        pipeline.state_manager.save_daily_selections.assert_called_once_with("2026-05-03", unittest.mock.ANY, "run-123")
+        pipeline.state_manager.save_daily_candidates.assert_any_call("2026-05-03", unittest.mock.ANY, "run-123")
+        pipeline.state_manager.save_daily_themes.assert_any_call("2026-05-03", unittest.mock.ANY, "run-123")
+        pipeline.state_manager.save_daily_selections.assert_any_call("2026-05-03", unittest.mock.ANY, "run-123")
         pipeline.state_manager.finalize_daily_run.assert_called_once()
 
     def test_x_refresh_site_rebuilds_site_daily_from_base_window_plus_new_x_items(self) -> None:

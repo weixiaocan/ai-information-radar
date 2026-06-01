@@ -223,6 +223,16 @@ class Pipeline:
         day = target_date.isoformat() if target_date else "latest"
         resolved_run_id = run_id or (self.state_manager.resolve_latest_daily_run_id(day) if target_date else None)
         daily_items = self._load_items_for_daily_report(target_date, report_window, items)
+        if deliver and target_date and not self._daily_curate_run_ready(day, resolved_run_id, len(daily_items)):
+            payload = {
+                "status": "blocked",
+                "reason": "daily_curate_incomplete",
+                "day": day,
+                "run_id": resolved_run_id or "",
+                "items": len(daily_items),
+            }
+            self.state_manager.write_heartbeat("daily_blocked_curate_incomplete", payload)
+            return payload
         candidates_data = (
             self.state_manager.load_daily_candidates(day, resolved_run_id)
             if target_date
@@ -269,6 +279,7 @@ class Pipeline:
         daily_items = self._load_items_for_daily_report(target_date, report_window, items)
         candidates = self.daily_candidate_builder.build(daily_items)
         candidates = normalize_daily_candidates_payload(candidates)
+        self.state_manager.save_daily_candidates(day, candidates, resolved_run_id)
         builder_hot_candidates = candidates.get("builder_hot_candidates", [])
         editorial_candidate_ids = {
             str(candidate.get("content_id", "")).strip()
@@ -288,10 +299,12 @@ class Pipeline:
             themes_data["degraded_stage"] = "builder_decision"
             themes_data["fallback_mode"] = "empty_themes"
             themes_data["degraded_source"] = "zara_x"
+        self.state_manager.save_daily_themes(day, themes_data, resolved_run_id)
         exclude_ids: set[str] = set()
         for theme in themes_data.get("themes", []):
             exclude_ids.update(theme_decision(theme).get("member_content_ids", []))
         selections_data = self.daily_curator.curate_daily(editorial_items, exclude_ids)
+        self.state_manager.save_daily_selections(day, selections_data, resolved_run_id)
         resolver = getattr(self, "daily_decision_resolver", DailyDecisionResolver())
         candidates, themes_data, selections_data = resolver.resolve(
             candidates,
@@ -322,6 +335,17 @@ class Pipeline:
             },
         )
         return {"run_id": resolved_run_id, "day": day, "candidates": candidates, "themes": themes_data, "selections": selections_data}
+
+    def _daily_curate_run_ready(self, day: str, run_id: str | None, item_count: int) -> bool:
+        if item_count <= 0:
+            return True
+        if not run_id:
+            return False
+        manifest = self.state_manager.load_daily_manifest(day, run_id)
+        if str(manifest.get("status", "")).strip() != "completed":
+            return False
+        artifacts = manifest.get("artifacts", {})
+        return all(str(artifacts.get(name, "")).strip() for name in ("candidates", "themes", "selections"))
 
     def x_refresh_site(self) -> dict[str, Any]:
         from src.ingestion.zara_fetcher import ZaraFetcher

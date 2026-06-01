@@ -9,6 +9,45 @@ from src.utils.daily_state import builder_candidate_copy, builder_candidate_deci
 
 
 class DailyCandidateBuilderTest(unittest.TestCase):
+    def test_builder_failure_still_returns_editorial_candidates(self) -> None:
+        client = Mock()
+        client.daily_builder_hot_decisions.side_effect = RuntimeError("deepseek unavailable")
+        builder = DailyCandidateBuilder(client, Path("prompts/theme_signal_extractor.md"))
+        items = [
+            ContentItem(
+                content_id="zara_x_1",
+                source_type="zara_x",
+                source_name="zara_x",
+                title="Builder post",
+                url="https://x.com/1",
+                author="Builder",
+                published_at=datetime(2026, 5, 21, tzinfo=timezone.utc),
+                fetched_at=datetime(2026, 5, 21, 1, tzinfo=timezone.utc),
+                body="Builder body",
+                body_type="tweet",
+            ),
+            ContentItem(
+                content_id="rss_1",
+                source_type="rss",
+                source_name="simon_willison",
+                title="Editorial post",
+                url="https://example.com/post",
+                author="Simon Willison",
+                published_at=datetime(2026, 5, 21, tzinfo=timezone.utc),
+                fetched_at=datetime(2026, 5, 21, 1, tzinfo=timezone.utc),
+                body="Editorial body",
+                body_type="article",
+                ai_summary="Useful editorial summary",
+            ),
+        ]
+
+        payload = builder.build(items)
+
+        self.assertEqual(payload["builder_hot_candidates"], [])
+        self.assertEqual(payload["editorial_candidates"][0]["content_id"], "rss_1")
+        self.assertEqual(payload["degraded_reason"], "builder_decision_failed")
+        self.assertEqual(payload["degraded_stage"], "builder_decision")
+
     def test_synthesize_signal_from_english_builder_post(self) -> None:
         client = Mock()
         client.daily_builder_hot_copy.return_value = {

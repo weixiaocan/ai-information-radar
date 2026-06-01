@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -26,6 +28,7 @@ class DeepSeekClient:
     api_key: str
     base_url: str
     timeout_seconds: int
+    retry_delays_seconds: tuple[int, ...] = (10, 30, 90)
 
     def _chat_completion(
         self,
@@ -51,15 +54,73 @@ class DeepSeekClient:
         if json_output:
             payload["response_format"] = {"type": "json_object"}
 
-        response = requests.post(
-            f"{self.base_url.rstrip('/')}/chat/completions",
-            headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
-            json=payload,
-            timeout=timeout_seconds or self.timeout_seconds,
-        )
-        response.raise_for_status()
+        url = f"{self.base_url.rstrip('/')}/chat/completions"
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        attempts = len(self.retry_delays_seconds) + 1
+        for attempt in range(1, attempts + 1):
+            try:
+                response = requests.post(
+                    url,
+                    headers=headers,
+                    json=payload,
+                    timeout=timeout_seconds or self.timeout_seconds,
+                )
+                if self._should_retry_status(response.status_code) and attempt < attempts:
+                    wait_seconds = self._retry_delay(attempt)
+                    LOGGER.warning(
+                        "DeepSeek request returned retryable status %s on attempt %s/%s; retrying in %.1fs",
+                        response.status_code,
+                        attempt,
+                        attempts,
+                        wait_seconds,
+                    )
+                    time.sleep(wait_seconds)
+                    continue
+                response.raise_for_status()
+                break
+            except requests.exceptions.HTTPError as exc:
+                status_code = exc.response.status_code if exc.response is not None else 0
+                if not self._should_retry_status(status_code) or attempt >= attempts:
+                    raise
+                wait_seconds = self._retry_delay(attempt)
+                LOGGER.warning(
+                    "DeepSeek HTTP error %s on attempt %s/%s; retrying in %.1fs",
+                    status_code,
+                    attempt,
+                    attempts,
+                    wait_seconds,
+                )
+                time.sleep(wait_seconds)
+            except (
+                requests.exceptions.Timeout,
+                requests.exceptions.ConnectionError,
+                requests.exceptions.SSLError,
+            ) as exc:
+                if attempt >= attempts:
+                    raise
+                wait_seconds = self._retry_delay(attempt)
+                LOGGER.warning(
+                    "DeepSeek network error %s on attempt %s/%s; retrying in %.1fs",
+                    exc.__class__.__name__,
+                    attempt,
+                    attempts,
+                    wait_seconds,
+                )
+                time.sleep(wait_seconds)
+        else:
+            raise RuntimeError("DeepSeek request failed unexpectedly")
         result = response.json()
         return result["choices"][0]["message"]["content"]
+
+    def _should_retry_status(self, status_code: int) -> bool:
+        return status_code == 429 or 500 <= status_code < 600
+
+    def _retry_delay(self, attempt: int) -> float:
+        index = min(attempt - 1, len(self.retry_delays_seconds) - 1)
+        base_delay = float(self.retry_delays_seconds[index])
+        if base_delay <= 0:
+            return 0.0
+        return base_delay + random.uniform(0, min(1.0, base_delay * 0.1))
 
     def summarize(self, prompt_path: str, item: ContentItem) -> dict[str, Any]:
         prompt_template = load_prompt(Path(prompt_path))

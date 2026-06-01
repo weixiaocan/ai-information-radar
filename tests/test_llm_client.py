@@ -1,13 +1,55 @@
 import unittest
 from datetime import datetime, timezone
 from json import JSONDecodeError
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+
+import requests
 
 from src.models.content_item import ContentItem
 from src.utils.llm_client import DeepSeekClient
 
 
 class LLMClientValidationTest(unittest.TestCase):
+    def test_chat_completion_retries_transient_network_errors(self) -> None:
+        client = DeepSeekClient(
+            api_key="key",
+            base_url="https://example.com",
+            timeout_seconds=30,
+            retry_delays_seconds=(0, 0),
+        )
+        response = Mock()
+        response.status_code = 200
+        response.json.return_value = {"choices": [{"message": {"content": "{}"}}]}
+        response.raise_for_status.return_value = None
+
+        with patch(
+            "src.utils.llm_client.requests.post",
+            side_effect=[requests.exceptions.SSLError("eof"), response],
+        ) as post_mock:
+            with patch("src.utils.llm_client.time.sleep") as sleep_mock:
+                result = client._chat_completion("prompt", model="deepseek-chat")
+
+        self.assertEqual(result, "{}")
+        self.assertEqual(post_mock.call_count, 2)
+        sleep_mock.assert_called_once_with(0.0)
+
+    def test_chat_completion_does_not_retry_auth_errors(self) -> None:
+        client = DeepSeekClient(
+            api_key="key",
+            base_url="https://example.com",
+            timeout_seconds=30,
+            retry_delays_seconds=(0, 0),
+        )
+        response = Mock()
+        response.status_code = 401
+        response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=response)
+
+        with patch("src.utils.llm_client.requests.post", return_value=response) as post_mock:
+            with self.assertRaises(requests.exceptions.HTTPError):
+                client._chat_completion("prompt", model="deepseek-chat")
+
+        post_mock.assert_called_once()
+
     def test_chat_completion_json_retries_once_on_invalid_json(self) -> None:
         client = DeepSeekClient(api_key="key", base_url="https://example.com", timeout_seconds=30)
 

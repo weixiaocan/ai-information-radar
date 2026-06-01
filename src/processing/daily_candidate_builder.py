@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,8 @@ from src.models.content_item import ContentItem
 from src.utils.daily_state import builder_candidate_decision, normalize_builder_hot_candidate, with_degraded_fields
 from src.utils.llm_client import DeepSeekClient
 from src.utils.source_labels import get_original_source_name
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -26,7 +29,14 @@ class DailyCandidateBuilder:
         builder_items = [item for item in today_items if item.source_type == "zara_x"]
         editorial_items = [item for item in today_items if item.source_type != "zara_x"]
         self._last_builder_stage = "ok"
-        builder_hot_candidates = self._build_builder_hot_candidates(builder_items)
+        builder_failed = False
+        try:
+            builder_hot_candidates = self._build_builder_hot_candidates(builder_items)
+        except Exception:
+            LOGGER.exception("Builder hot candidate generation failed")
+            builder_failed = True
+            self._last_builder_stage = "builder_decision"
+            builder_hot_candidates = []
         editorial_candidates_raw = self._build_editorial_candidates(editorial_items)
         editorial_candidates_filtered = self._filter_editorial_candidates(editorial_candidates_raw)
         editorial_top10 = self._rank_editorial_candidates(editorial_candidates_filtered)[: self.editorial_top_n]
@@ -37,6 +47,13 @@ class DailyCandidateBuilder:
             "editorial_top10": editorial_top10,
             "editorial_candidates": editorial_top10,
         }
+        if builder_failed:
+            return with_degraded_fields(
+                payload,
+                degraded_reason="builder_decision_failed",
+                degraded_stage="builder_decision",
+                fallback_mode="empty_hot_pool",
+            )
         if builder_items and not builder_hot_candidates:
             return with_degraded_fields(
                 payload,
