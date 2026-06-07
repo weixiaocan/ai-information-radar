@@ -6,7 +6,7 @@ param(
     [string]$IngestTime = "07:00",
     [string]$Tier1Time = "07:30",
     [string]$DailyCurateTime = "07:50",
-    [string]$WeeklyTime = "12:00"
+    [string]$WeeklyTime = "09:00"
 )
 
 $ErrorActionPreference = "Stop"

@@ -31,7 +31,7 @@ Tasks created by `scripts/register_tasks.ps1`:
    Command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\run_pipeline.ps1" -PythonExe "D:\anaconda\envs\ai-radar\python.exe" -Task daily -Deliver
 
 5. AI Radar Weekly Digest
-   Trigger: Weekly Monday at 12:00
+   Trigger: Weekly Monday at 09:00
    Command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\run_pipeline.ps1" -PythonExe "D:\anaconda\envs\ai-radar\python.exe" -Task weekly -Deliver
 
 Logs are written to `state/logs/`.
