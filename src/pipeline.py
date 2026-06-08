@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -23,7 +24,6 @@ from src.storage.transcript_store import TranscriptStore
 from src.utils.config import Settings, load_yaml
 from src.utils.daily_state import normalize_daily_candidates_payload, theme_decision
 from src.utils.llm_client import DeepSeekClient
-from src.utils.slugify import slugify
 from src.utils.transcript_client import TranscriptClient
 
 LOCAL_TIMEZONE = ZoneInfo("Asia/Shanghai")
@@ -479,7 +479,7 @@ class Pipeline:
         weekly_end_date = self._resolve_weekly_end_date()
         weekly_items = self._load_items_for_weekly_report(weekly_end_date)
         weekly_items = self._ensure_weekly_tier2_scores(weekly_items)
-        self.report_writer.write(weekly_items)
+        ebook_report_paths = self.report_writer.write(weekly_items)
         digest_data = self.weekly_builder.prepare_digest(weekly_items, target_end_date=weekly_end_date)
         payload = self.weekly_builder.build(weekly_items, target_end_date=weekly_end_date, digest_data=digest_data)
         report_path = self._write_weekly_report(
@@ -487,7 +487,7 @@ class Pipeline:
             target_end_date=weekly_end_date,
             digest_data=digest_data,
         )
-        exported_transcripts = self._export_weekly_top_transcripts(digest_data, weekly_end_date)
+        exported_ebook_reports = self._copy_weekly_ebook_reports(ebook_report_paths)
         if deliver:
             self.feishu.send(payload)
         target_label = report_path.stem if report_path else "latest"
@@ -498,7 +498,7 @@ class Pipeline:
                 "items": len(weekly_items),
                 "window_start": (weekly_end_date - timedelta(days=6)).isoformat(),
                 "window_end": weekly_end_date.isoformat(),
-                "exported_top_transcripts": len(exported_transcripts),
+                "exported_ebook_reports": len(exported_ebook_reports),
             },
         )
         return payload
@@ -805,26 +805,20 @@ class Pipeline:
         )
         return path
 
-    def _export_weekly_top_transcripts(self, digest_data: dict[str, Any], target_end_date: date) -> list[Path]:
-        export_dir = getattr(self.settings, "weekly_top_transcript_export_dir", None)
+    def _copy_weekly_ebook_reports(self, report_paths: list[Path]) -> list[Path]:
+        export_dir = getattr(self.settings, "weekly_ebook_export_dir", None)
         if export_dir is None:
             return []
 
-        week = target_end_date.isocalendar()
+        export_root = Path(export_dir)
+        export_root.mkdir(parents=True, exist_ok=True)
         exported: list[Path] = []
-        for index, payload in enumerate(digest_data.get("top_payloads", []), start=1):
-            if not payload:
+        for report_path in report_paths:
+            if not report_path.exists():
                 continue
-            item = payload.get("item")
-            if not isinstance(item, ContentItem):
-                continue
-            if item.body_type != "transcript" or not item.body.strip():
-                continue
-            filename = (
-                f"{week.year}-W{week.week:02d}_top{index}_"
-                f"{slugify(item.source_name)}_{slugify(item.title, fallback=item.content_id)}.md"
-            )
-            exported.append(self.transcript_store.export(item, Path(export_dir) / filename))
+            target_path = export_root / report_path.name
+            shutil.copy2(report_path, target_path)
+            exported.append(target_path)
         return exported
 
     def _resolve_weekly_end_date(self) -> date:

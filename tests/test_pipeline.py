@@ -10,7 +10,6 @@ from src.processing.daily_candidate_builder import DailyCandidateBuilder
 from src.processing.daily_curator import DailyCurator
 from src.processing.theme_aggregator import ThemeAggregator
 from src.storage.state_manager import StateManager
-from src.storage.transcript_store import TranscriptStore
 from src.pipeline import Pipeline
 from src.ingestion.zara_fetcher import ZaraFetchReport
 from src.utils.daily_state import builder_candidate_copy, builder_candidate_decision, selection_copy, selection_decision
@@ -212,12 +211,14 @@ class PipelineHelpersTest(unittest.TestCase):
         pipeline._ensure_weekly_tier2_scores = Mock(return_value=[weekly_item])
         pipeline._resolve_weekly_end_date = Mock(return_value=date(2026, 5, 24))
         pipeline.report_writer = Mock()
+        ebook_paths = [Path("reports/ebook/2026-W21/top1_weekly_video.md")]
+        pipeline.report_writer.write.return_value = ebook_paths
         pipeline.weekly_builder = Mock()
         digest_data = {"top_payloads": [], "themes": []}
         pipeline.weekly_builder.prepare_digest.return_value = digest_data
         pipeline.weekly_builder.build.return_value = {"msg_type": "interactive"}
         pipeline._write_weekly_report = Mock(return_value=Path("reports/weekly/2026-W21.md"))
-        pipeline._export_weekly_top_transcripts = Mock(return_value=[])
+        pipeline._copy_weekly_ebook_reports = Mock(return_value=[])
         pipeline.feishu = Mock()
         pipeline._publish_site_report = Mock()
         pipeline.state_manager = Mock()
@@ -240,72 +241,29 @@ class PipelineHelpersTest(unittest.TestCase):
             target_end_date=date(2026, 5, 24),
             digest_data=digest_data,
         )
-        pipeline._export_weekly_top_transcripts.assert_called_once_with(digest_data, date(2026, 5, 24))
+        pipeline._copy_weekly_ebook_reports.assert_called_once_with(ebook_paths)
         pipeline.feishu.send.assert_not_called()
         self.assertEqual(payload, {"msg_type": "interactive"})
 
-    def test_export_weekly_top_transcripts_writes_top_transcript_markdown(self) -> None:
+    def test_copy_weekly_ebook_reports_copies_generated_top_markdown(self) -> None:
         pipeline = Pipeline.__new__(Pipeline)
-        first_item = ContentItem(
-            content_id="youtube_first",
-            source_type="youtube",
-            source_name="latent_space",
-            title="First Top Video",
-            url="https://youtube.com/watch?v=first",
-            author="Host",
-            published_at=datetime(2026, 5, 23, 12, tzinfo=timezone.utc),
-            fetched_at=datetime(2026, 5, 24, 1, tzinfo=timezone.utc),
-            body="First transcript",
-            body_type="transcript",
-            ai_score={"relevance": 9},
-        )
-        second_item = ContentItem(
-            content_id="youtube_second",
-            source_type="youtube",
-            source_name="no_priors",
-            title="Second Top Video",
-            url="https://youtube.com/watch?v=second",
-            author="Host",
-            published_at=datetime(2026, 5, 22, 12, tzinfo=timezone.utc),
-            fetched_at=datetime(2026, 5, 24, 1, tzinfo=timezone.utc),
-            body="Second transcript",
-            body_type="transcript",
-            ai_score={"relevance": 8},
-        )
-        skipped_item = ContentItem(
-            content_id="youtube_skipped",
-            source_type="youtube",
-            source_name="training_data",
-            title="No Transcript",
-            url="https://youtube.com/watch?v=skipped",
-            author="Host",
-            published_at=datetime(2026, 5, 21, 12, tzinfo=timezone.utc),
-            fetched_at=datetime(2026, 5, 24, 1, tzinfo=timezone.utc),
-            body="Only description",
-            body_type="description",
-            ai_score={"relevance": 7},
-        )
-
         with TemporaryDirectory() as tmpdir:
-            pipeline.settings = Mock(weekly_top_transcript_export_dir=Path(tmpdir))
-            pipeline.transcript_store = TranscriptStore(Path(tmpdir) / "store")
-            exported = Pipeline._export_weekly_top_transcripts(
-                pipeline,
-                {
-                    "top_payloads": [
-                        {"item": first_item},
-                        {"item": second_item},
-                        {"item": skipped_item},
-                    ]
-                },
-                date(2026, 5, 24),
-            )
+            source_dir = Path(tmpdir) / "reports" / "ebook" / "2026-W21"
+            source_dir.mkdir(parents=True)
+            first_path = source_dir / "top1_latent_space_first_top_video.md"
+            second_path = source_dir / "top2_no_priors_second_top_video.md"
+            first_path.write_text("# First\n\nFirst ebook report", encoding="utf-8")
+            second_path.write_text("# Second\n\nSecond ebook report", encoding="utf-8")
+            export_dir = Path(tmpdir) / "export"
+            pipeline.settings = Mock(weekly_ebook_export_dir=export_dir)
+
+            exported = Pipeline._copy_weekly_ebook_reports(pipeline, [first_path, second_path])
 
             self.assertEqual(len(exported), 2)
-            self.assertEqual(exported[0].name, "2026-W21_top1_latent_space_first_top_video.md")
-            self.assertEqual(exported[1].name, "2026-W21_top2_no_priors_second_top_video.md")
-            self.assertIn("First transcript", exported[0].read_text(encoding="utf-8"))
-            self.assertIn("Second transcript", exported[1].read_text(encoding="utf-8"))
+            self.assertEqual(exported[0], export_dir / first_path.name)
+            self.assertEqual(exported[1], export_dir / second_path.name)
+            self.assertIn("First ebook report", exported[0].read_text(encoding="utf-8"))
+            self.assertIn("Second ebook report", exported[1].read_text(encoding="utf-8"))
 
     def test_ensure_weekly_tier2_scores_uses_weekly_youtube_items_not_latest_stage_snapshot(self) -> None:
         pipeline = Pipeline.__new__(Pipeline)

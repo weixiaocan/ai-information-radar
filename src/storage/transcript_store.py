@@ -26,10 +26,6 @@ class TranscriptStore:
     def save_many(self, items: Iterable[ContentItem]) -> list[Path]:
         return [self.save(item) for item in items]
 
-    def export(self, item: ContentItem, path: Path) -> Path:
-        atomic_write_text(path, self._render_markdown(item), encoding="utf-8")
-        return path
-
     def load_by_content_ids(self, content_ids: list[str]) -> list[ContentItem]:
         wanted = set(content_ids)
         items: list[ContentItem] = []
