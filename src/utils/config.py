@@ -24,6 +24,9 @@ class Settings:
     site_git_branch: str = "main"
     site_publish_timeout_seconds: int = 60
     site_push_retry_delays_seconds: tuple[int, ...] = (180, 300, 600)
+    weekly_top_transcript_export_dir: Path | None = Path(
+        r"D:\huangxh\AI_Projects_100\p13_公众号文章\AI_RADAR"
+    )
     request_timeout_seconds: int = 30
     zara_retry_attempts: int = 4
     zara_retry_delays_seconds: tuple[int, ...] = (60, 180, 600)
@@ -53,6 +56,13 @@ def load_settings(project_root: Path | None = None) -> Settings:
         site_git_branch=os.getenv("SITE_GIT_BRANCH", "main"),
         site_publish_timeout_seconds=int(os.getenv("SITE_PUBLISH_TIMEOUT_SECONDS", "60")),
         site_push_retry_delays_seconds=_parse_int_tuple(os.getenv("SITE_PUSH_RETRY_DELAYS_SECONDS", "180,300,600")),
+        weekly_top_transcript_export_dir=_resolve_optional_path(
+            root,
+            os.getenv(
+                "WEEKLY_TOP_TRANSCRIPT_EXPORT_DIR",
+                r"D:\huangxh\AI_Projects_100\p13_公众号文章\AI_RADAR",
+            ),
+        ),
         request_timeout_seconds=int(os.getenv("REQUEST_TIMEOUT_SECONDS", "30")),
         zara_retry_attempts=int(os.getenv("ZARA_RETRY_ATTEMPTS", "4")),
         zara_retry_delays_seconds=_parse_int_tuple(os.getenv("ZARA_RETRY_DELAYS_SECONDS", "60,180,600")),
