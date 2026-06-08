@@ -91,6 +91,24 @@ class SourceRetryTest(unittest.TestCase):
         self.assertEqual(mock_get.call_count, 3)
         _sleep.assert_called_once_with(10)
 
+    def test_web_fetch_discovers_relative_links_when_source_base_is_absolute(self) -> None:
+        fetcher = WebFetcher(timeout_seconds=30)
+        html = """
+        <a href="/engineering/how-we-contain-claude">How we contain Claude</a>
+        <script>{"url":"https://www.anthropic.com/engineering/old-post\\"}</script>
+        """
+        urls = fetcher._discover_urls(
+            html,
+            "https://www.anthropic.com/engineering/",
+            "https://www.anthropic.com/engineering",
+        )
+
+        self.assertIn(
+            ("/engineering/how-we-contain-claude", "https://www.anthropic.com/engineering/how-we-contain-claude"),
+            urls,
+        )
+        self.assertTrue(all(not normalized_url.endswith("\\") for _, normalized_url in urls))
+
     @patch("src.utils.http_retry.time.sleep", return_value=None)
     def test_youtube_get_retries_timeout_and_recovers(self, _sleep: Mock) -> None:
         fetcher = YouTubeFetcher(api_key="key", timeout_seconds=30)

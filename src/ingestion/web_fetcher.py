@@ -4,7 +4,7 @@ import logging
 import re
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import requests
 from goose3 import Goose
@@ -71,14 +71,26 @@ class WebFetcher:
             logger=LOGGER,
         )
         html = response.text
-        article_base_url = str(source.get("article_base_url", "")).strip()
-        pattern = re.escape(article_base_url) + r"[^\"'#<>\s]+"
-        urls = list(dict.fromkeys(re.findall(pattern, html)))
+        urls = self._discover_urls(html, str(source.get("article_base_url", "")).strip(), source["index_url"])
         entries: list[dict[str, str]] = []
-        for url in urls[:20]:
-            title = self._extract_anchor_title(html, url)
-            entries.append({"url": urljoin(source["index_url"], url), "title": title})
+        for raw_url, normalized_url in urls[:20]:
+            title = self._extract_anchor_title(html, raw_url) or self._extract_anchor_title(html, normalized_url)
+            entries.append({"url": normalized_url, "title": title})
         return entries
+
+    def _discover_urls(self, html: str, article_base_url: str, index_url: str) -> list[tuple[str, str]]:
+        prefixes = [article_base_url]
+        parsed_base = urlparse(article_base_url)
+        if parsed_base.scheme and parsed_base.netloc and parsed_base.path:
+            prefixes.append(parsed_base.path)
+
+        discovered: dict[str, str] = {}
+        for prefix in [prefix for prefix in prefixes if prefix]:
+            pattern = re.escape(prefix) + r"[^\"'#<>\s\\]+"
+            for raw_url in re.findall(pattern, html):
+                normalized_url = urljoin(index_url, raw_url).rstrip("\\")
+                discovered.setdefault(normalized_url, raw_url)
+        return [(raw_url, normalized_url) for normalized_url, raw_url in discovered.items()]
 
     def _extract_anchor_title(self, html: str, url: str) -> str:
         anchor_pattern = re.compile(
