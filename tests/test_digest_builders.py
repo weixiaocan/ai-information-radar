@@ -521,6 +521,41 @@ class WeeklyDigestBuilderTest(unittest.TestCase):
 
         self.assertIn("**Training Data**", markdown)
 
+    def test_weekly_digest_reuses_prepared_top_copy_for_card_and_markdown(self) -> None:
+        client = Mock()
+        client.weekly_themes.return_value = {"themes": []}
+        client.weekly_pitch.return_value = "single generated pitch"
+        builder = WeeklyDigestBuilder(client, "prompts/weekly_pitch.md", "prompts/weekly_themes.md")
+        items = [
+            ContentItem(
+                content_id="youtube_1",
+                source_type="youtube",
+                source_name="training_data",
+                title="Inference cloud",
+                url="https://youtube.com/watch?v=1",
+                author="Host",
+                published_at=datetime(2026, 5, 3, tzinfo=timezone.utc),
+                fetched_at=datetime(2026, 5, 3, 1, tzinfo=timezone.utc),
+                body="Transcript",
+                body_type="transcript",
+                ai_score={
+                    "relevance": 8,
+                    "contrarian": 8,
+                    "guest_rarity": 8,
+                    "popularity": 8,
+                },
+            )
+        ]
+
+        digest_data = builder.prepare_digest(items, target_end_date=date(2026, 5, 24))
+        card = builder.build(items, target_end_date=date(2026, 5, 24), digest_data=digest_data)
+        markdown = builder.render_markdown(items, target_end_date=date(2026, 5, 24), digest_data=digest_data)
+
+        self.assertIn("single generated pitch", markdown)
+        self.assertIn("single generated pitch", str(card))
+        client.weekly_pitch.assert_called_once()
+        client.weekly_themes.assert_called_once()
+
     def test_weekly_digest_filters_themes_with_only_one_highlight(self) -> None:
         client = Mock()
         client.weekly_themes.return_value = {

@@ -16,10 +16,26 @@ class WeeklyDigestBuilder:
         self.themes_prompt_path = themes_prompt_path
         self.display_name_map = load_display_name_map()
 
-    def build(self, items: list[ContentItem], target_end_date: date | None = None) -> dict[str, Any]:
-        top_payloads = self._build_top_payloads(items)
-        themes = self._build_themes(items)
+    def prepare_digest(self, items: list[ContentItem], target_end_date: date | None = None) -> dict[str, Any]:
         week_number, window_start, window_end = self._week_window(items, target_end_date)
+        return {
+            "top_payloads": self._build_top_payloads(items),
+            "themes": self._build_themes(items),
+            "week_number": week_number,
+            "window_start": window_start,
+            "window_end": window_end,
+        }
+
+    def build(
+        self,
+        items: list[ContentItem],
+        target_end_date: date | None = None,
+        digest_data: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        digest_data = digest_data or self.prepare_digest(items, target_end_date)
+        week_number = digest_data["week_number"]
+        window_start = digest_data["window_start"]
+        window_end = digest_data["window_end"]
         return {
             "msg_type": "interactive",
             "card": {
@@ -31,14 +47,22 @@ class WeeklyDigestBuilder:
                         "content": f"AI Radar 周报 · 第{week_number}周（{window_start:%m-%d} ~ {window_end:%m-%d}）",
                     },
                 },
-                "elements": self._build_elements(themes, top_payloads),
+                "elements": self._build_elements(digest_data["themes"], digest_data["top_payloads"]),
             },
         }
 
-    def render_markdown(self, items: list[ContentItem], target_end_date: date | None = None) -> str:
-        top_payloads = self._build_top_payloads(items)
-        themes = self._build_themes(items)
-        week_number, window_start, window_end = self._week_window(items, target_end_date)
+    def render_markdown(
+        self,
+        items: list[ContentItem],
+        target_end_date: date | None = None,
+        digest_data: dict[str, Any] | None = None,
+    ) -> str:
+        digest_data = digest_data or self.prepare_digest(items, target_end_date)
+        top_payloads = digest_data["top_payloads"]
+        themes = digest_data["themes"]
+        week_number = digest_data["week_number"]
+        window_start = digest_data["window_start"]
+        window_end = digest_data["window_end"]
 
         lines = [f"# AI Radar 周报 · 第{week_number}周（{window_start:%m-%d} ~ {window_end:%m-%d}）", ""]
         if themes:

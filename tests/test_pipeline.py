@@ -211,6 +211,8 @@ class PipelineHelpersTest(unittest.TestCase):
         pipeline._resolve_weekly_end_date = Mock(return_value=date(2026, 5, 24))
         pipeline.report_writer = Mock()
         pipeline.weekly_builder = Mock()
+        digest_data = {"top_payloads": [], "themes": []}
+        pipeline.weekly_builder.prepare_digest.return_value = digest_data
         pipeline.weekly_builder.build.return_value = {"msg_type": "interactive"}
         pipeline._write_weekly_report = Mock(return_value=Path("reports/weekly/2026-W21.md"))
         pipeline.feishu = Mock()
@@ -224,8 +226,17 @@ class PipelineHelpersTest(unittest.TestCase):
         pipeline._load_items_for_weekly_report.assert_called_once_with(date(2026, 5, 24))
         pipeline._ensure_weekly_tier2_scores.assert_called_once_with([weekly_item])
         pipeline.report_writer.write.assert_called_once_with([weekly_item])
-        pipeline.weekly_builder.build.assert_called_once_with([weekly_item], target_end_date=date(2026, 5, 24))
-        pipeline._write_weekly_report.assert_called_once_with([weekly_item], target_end_date=date(2026, 5, 24))
+        pipeline.weekly_builder.prepare_digest.assert_called_once_with([weekly_item], target_end_date=date(2026, 5, 24))
+        pipeline.weekly_builder.build.assert_called_once_with(
+            [weekly_item],
+            target_end_date=date(2026, 5, 24),
+            digest_data=digest_data,
+        )
+        pipeline._write_weekly_report.assert_called_once_with(
+            [weekly_item],
+            target_end_date=date(2026, 5, 24),
+            digest_data=digest_data,
+        )
         pipeline.feishu.send.assert_not_called()
         self.assertEqual(payload, {"msg_type": "interactive"})
 

@@ -479,8 +479,13 @@ class Pipeline:
         weekly_items = self._load_items_for_weekly_report(weekly_end_date)
         weekly_items = self._ensure_weekly_tier2_scores(weekly_items)
         self.report_writer.write(weekly_items)
-        payload = self.weekly_builder.build(weekly_items, target_end_date=weekly_end_date)
-        report_path = self._write_weekly_report(weekly_items, target_end_date=weekly_end_date)
+        digest_data = self.weekly_builder.prepare_digest(weekly_items, target_end_date=weekly_end_date)
+        payload = self.weekly_builder.build(weekly_items, target_end_date=weekly_end_date, digest_data=digest_data)
+        report_path = self._write_weekly_report(
+            weekly_items,
+            target_end_date=weekly_end_date,
+            digest_data=digest_data,
+        )
         if deliver:
             self.feishu.send(payload)
         target_label = report_path.stem if report_path else "latest"
@@ -776,13 +781,25 @@ class Pipeline:
         )
         return path
 
-    def _write_weekly_report(self, items: list[ContentItem], target_end_date: date | None = None) -> Path:
+    def _write_weekly_report(
+        self,
+        items: list[ContentItem],
+        target_end_date: date | None = None,
+        digest_data: dict[str, Any] | None = None,
+    ) -> Path:
         if target_end_date is None:
             target_end_date = self._resolve_weekly_end_date()
         week = target_end_date.isocalendar()
         filename = f"{week.year}-W{week.week:02d}"
         path = self.weekly_reports_root / f"{filename}.md"
-        path.write_text(self.weekly_builder.render_markdown(items, target_end_date=target_end_date), encoding="utf-8")
+        path.write_text(
+            self.weekly_builder.render_markdown(
+                items,
+                target_end_date=target_end_date,
+                digest_data=digest_data,
+            ),
+            encoding="utf-8",
+        )
         return path
 
     def _resolve_weekly_end_date(self) -> date:
