@@ -82,7 +82,8 @@ class WeeklyDigestBuilder:
             rendered_any_top = True
             item: ContentItem = payload["item"]
             display_name = self._get_display_name(get_original_source_name(item))
-            lines.append(f"### {medals[index]} Top {index + 1}: {item.title}")
+            title = f"[{item.title}]({item.url})" if item.url else item.title
+            lines.append(f"### {medals[index]} Top {index + 1}: {title}")
             lines.append("")
             lines.append(f"**{display_name}**")
             lines.append("")

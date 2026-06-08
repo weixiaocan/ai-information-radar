@@ -520,6 +520,7 @@ class WeeklyDigestBuilderTest(unittest.TestCase):
         markdown = builder.render_markdown(items)
 
         self.assertIn("**Training Data**", markdown)
+        self.assertIn("Top 1: [Inference cloud](https://youtube.com/watch?v=1)", markdown)
 
     def test_weekly_digest_reuses_prepared_top_copy_for_card_and_markdown(self) -> None:
         client = Mock()
