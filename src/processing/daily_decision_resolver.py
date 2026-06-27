@@ -111,7 +111,7 @@ class DailyDecisionResolver:
                         "source_name": source_name,
                         "title": title,
                         "url": url,
-                        "brief": self._strip_terminal_punctuation(str(candidate.get("summary", "")).strip()),
+                        "brief": self._supplementary_editorial_brief(candidate),
                     }
                 )
                 source_counts[source_name] = source_counts.get(source_name, 0) + 1
@@ -226,6 +226,23 @@ class DailyDecisionResolver:
         if len(tokens) >= 2 and tokens[1] in {"agent", "plugin", "sdk", "cli", "server", "client", "charts"}:
             return "pkg:" + " ".join(tokens[:2])
         return ""
+
+    def _supplementary_editorial_brief(self, candidate: dict[str, Any]) -> str:
+        summary = self._strip_terminal_punctuation(str(candidate.get("summary", "")).strip())
+        if summary and not self._looks_mostly_english(summary):
+            return summary
+        source_name = str(candidate.get("channel_or_source", "")).strip()
+        title = str(candidate.get("title", "")).strip()
+        if source_name and title:
+            return f"这条内容来自 {source_name}，标题为《{title}》，因未进入今日精选，仅作为补充候选保留。"
+        if source_name:
+            return f"这条内容来自 {source_name}，因未进入今日精选，仅作为补充候选保留。"
+        return "这条内容未进入今日精选，仅作为补充候选保留。"
+
+    def _looks_mostly_english(self, text: str) -> bool:
+        letters = re.findall(r"[A-Za-z]", text)
+        cjk = re.findall(r"[\u4e00-\u9fff]", text)
+        return len(letters) >= 20 and len(letters) > len(cjk) * 2
 
     def _strip_terminal_punctuation(self, text: str) -> str:
         return text.rstrip("銆傦紵锛?!?锛?")

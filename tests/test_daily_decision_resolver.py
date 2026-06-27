@@ -160,6 +160,29 @@ class DailyDecisionResolverTest(unittest.TestCase):
         self.assertNotIn("datasette-agent 0.1a3", titles)
         self.assertIn("Extra 2", titles)
 
+    def test_resolver_does_not_emit_english_summary_for_supplementary(self) -> None:
+        _, themes, _ = self.resolver.resolve(
+            candidates_data={
+                "editorial_top10": [
+                    {
+                        "content_id": "rss_extra",
+                        "type": "article",
+                        "channel_or_source": "TechCrunch AI",
+                        "title": "Early Bird pricing ends tonight for TechCrunch Founder Summit",
+                        "url": "https://example.com/extra",
+                        "summary": "Tonight is your last chance to save up to $190 on your pass to TechCrunch Founder Summit 2026.",
+                    }
+                ]
+            },
+            themes_data={"themes": [], "spotlight_posts": []},
+            selections_data={"selections": []},
+        )
+
+        self.assertEqual(len(themes["supplementary_items"]), 1)
+        brief = themes["supplementary_items"][0]["brief"]
+        self.assertIn("这条内容来自 TechCrunch AI", brief)
+        self.assertNotIn("Tonight is your last chance", brief)
+
     def test_resolver_dedupes_duplicate_spotlight_posts(self) -> None:
         _, themes, _ = self.resolver.resolve(
             candidates_data={},
