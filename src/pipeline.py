@@ -225,14 +225,20 @@ class Pipeline:
         resolved_run_id = run_id or (self.state_manager.resolve_latest_daily_run_id(day) if target_date else None)
         daily_items = self._load_items_for_daily_report(target_date, report_window, items)
         if deliver and target_date and not self._daily_curate_run_ready(day, resolved_run_id, len(daily_items)):
+            manifest = self.state_manager.load_daily_manifest(day, resolved_run_id) if resolved_run_id else {}
+            degraded = self._daily_curate_degraded_summary(manifest)
+            reason = "daily_curate_degraded" if degraded else "daily_curate_incomplete"
             payload = {
                 "status": "blocked",
-                "reason": "daily_curate_incomplete",
+                "reason": reason,
                 "day": day,
                 "run_id": resolved_run_id or "",
                 "items": len(daily_items),
             }
-            self.state_manager.write_heartbeat("daily_blocked_curate_incomplete", payload)
+            if degraded:
+                payload["degraded"] = degraded
+            heartbeat_name = "daily_blocked_curate_degraded" if degraded else "daily_blocked_curate_incomplete"
+            self.state_manager.write_heartbeat(heartbeat_name, payload)
             return payload
         candidates_data = (
             self.state_manager.load_daily_candidates(day, resolved_run_id)
@@ -346,7 +352,29 @@ class Pipeline:
         if str(manifest.get("status", "")).strip() != "completed":
             return False
         artifacts = manifest.get("artifacts", {})
-        return all(str(artifacts.get(name, "")).strip() for name in ("candidates", "themes", "selections"))
+        if not all(str(artifacts.get(name, "")).strip() for name in ("candidates", "themes", "selections")):
+            return False
+        return not self._daily_curate_degraded_summary(manifest)
+
+    def _daily_curate_degraded_summary(self, manifest: dict[str, Any]) -> dict[str, dict[str, str]]:
+        degraded = manifest.get("degraded", {})
+        if not isinstance(degraded, dict):
+            return {}
+        summary: dict[str, dict[str, str]] = {}
+        for section in ("candidates", "themes", "selections"):
+            metadata = degraded.get(section, {})
+            if not isinstance(metadata, dict):
+                continue
+            degraded_stage = str(metadata.get("degraded_stage", "")).strip()
+            degraded_reason = str(metadata.get("degraded_reason", "")).strip()
+            fallback_mode = str(metadata.get("fallback_mode", "")).strip()
+            if degraded_stage or degraded_reason or fallback_mode:
+                summary[section] = {
+                    "degraded_reason": degraded_reason,
+                    "degraded_stage": degraded_stage,
+                    "fallback_mode": fallback_mode,
+                }
+        return summary
 
     def x_refresh_site(self) -> dict[str, Any]:
         from src.ingestion.zara_fetcher import ZaraFetcher

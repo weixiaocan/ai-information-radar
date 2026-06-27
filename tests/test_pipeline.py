@@ -473,6 +473,95 @@ class PipelineHelpersTest(unittest.TestCase):
             },
         )
 
+    def test_daily_blocks_delivery_when_latest_curate_run_is_degraded(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        target_item = ContentItem(
+            content_id="rss_target",
+            source_type="rss",
+            source_name="simon_willison",
+            title="Target",
+            url="https://example.com/target",
+            author="Simon",
+            published_at=datetime(2026, 5, 3, 12, tzinfo=timezone.utc),
+            fetched_at=datetime(2026, 5, 4, 1, tzinfo=timezone.utc),
+            body="Target body",
+            body_type="article",
+        )
+        pipeline._load_stage_items = Mock(return_value=[target_item])
+        pipeline.transcript_store = Mock()
+        pipeline.transcript_store.load_available_dates.return_value = [date(2026, 5, 3)]
+        pipeline.transcript_store.load_by_date.return_value = [target_item]
+        pipeline.state_manager = Mock()
+        pipeline.state_manager.load_latest_window.return_value = {}
+        pipeline.state_manager.resolve_latest_daily_run_id.return_value = "run-123"
+        pipeline.state_manager.load_daily_manifest.return_value = {
+            "run_id": "run-123",
+            "target_day": "2026-05-03",
+            "status": "completed",
+            "artifacts": {
+                "candidates": "candidates.json",
+                "themes": "themes.json",
+                "selections": "selections.json",
+            },
+            "degraded": {
+                "candidates": {
+                    "degraded_reason": "builder_decision_failed",
+                    "degraded_stage": "builder_decision",
+                    "fallback_mode": "empty_hot_pool",
+                },
+                "themes": {
+                    "degraded_reason": "",
+                    "degraded_stage": "",
+                    "fallback_mode": "",
+                },
+                "selections": {
+                    "degraded_reason": "selection_decision_failed",
+                    "degraded_stage": "selection_decision",
+                    "fallback_mode": "empty_selection",
+                },
+            },
+        }
+        pipeline.state_manager.write_heartbeat = Mock()
+        pipeline.daily_builder = Mock()
+        pipeline._write_daily_report = Mock()
+        pipeline.feishu = Mock()
+        pipeline.site_publisher = None
+
+        with unittest.mock.patch("src.pipeline.date") as mock_date:
+            mock_date.today.return_value = date(2026, 5, 4)
+            mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+            payload = Pipeline.daily(pipeline, deliver=True)
+
+        self.assertEqual(payload["status"], "blocked")
+        self.assertEqual(payload["reason"], "daily_curate_degraded")
+        self.assertEqual(payload["degraded"]["candidates"]["degraded_reason"], "builder_decision_failed")
+        self.assertEqual(payload["degraded"]["selections"]["degraded_stage"], "selection_decision")
+        pipeline.daily_builder.build.assert_not_called()
+        pipeline._write_daily_report.assert_not_called()
+        pipeline.feishu.send.assert_not_called()
+        pipeline.state_manager.write_heartbeat.assert_called_once_with(
+            "daily_blocked_curate_degraded",
+            {
+                "status": "blocked",
+                "reason": "daily_curate_degraded",
+                "day": "2026-05-03",
+                "run_id": "run-123",
+                "items": 1,
+                "degraded": {
+                    "candidates": {
+                        "degraded_reason": "builder_decision_failed",
+                        "degraded_stage": "builder_decision",
+                        "fallback_mode": "empty_hot_pool",
+                    },
+                    "selections": {
+                        "degraded_reason": "selection_decision_failed",
+                        "degraded_stage": "selection_decision",
+                        "fallback_mode": "empty_selection",
+                    },
+                },
+            },
+        )
+
     def test_compute_x_mentions_matches_video_id_and_url(self) -> None:
         youtube_item = ContentItem(
             content_id="youtube_abc",
