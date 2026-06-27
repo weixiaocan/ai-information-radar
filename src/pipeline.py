@@ -368,6 +368,8 @@ class Pipeline:
             degraded_stage = str(metadata.get("degraded_stage", "")).strip()
             degraded_reason = str(metadata.get("degraded_reason", "")).strip()
             fallback_mode = str(metadata.get("fallback_mode", "")).strip()
+            if section == "themes" and fallback_mode == "spotlight_only":
+                continue
             if degraded_stage or degraded_reason or fallback_mode:
                 summary[section] = {
                     "degraded_reason": degraded_reason,

@@ -562,6 +562,30 @@ class PipelineHelpersTest(unittest.TestCase):
             },
         )
 
+    def test_daily_allows_spotlight_only_theme_degradation(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        manifest = {
+            "degraded": {
+                "candidates": {
+                    "degraded_reason": "",
+                    "degraded_stage": "",
+                    "fallback_mode": "",
+                },
+                "themes": {
+                    "degraded_reason": "theme_membership_failed",
+                    "degraded_stage": "theme_decision",
+                    "fallback_mode": "spotlight_only",
+                },
+                "selections": {
+                    "degraded_reason": "",
+                    "degraded_stage": "",
+                    "fallback_mode": "",
+                },
+            }
+        }
+
+        self.assertEqual(Pipeline._daily_curate_degraded_summary(pipeline, manifest), {})
+
     def test_compute_x_mentions_matches_video_id_and_url(self) -> None:
         youtube_item = ContentItem(
             content_id="youtube_abc",
