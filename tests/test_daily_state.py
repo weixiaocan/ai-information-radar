@@ -182,6 +182,29 @@ class DailyStateCompatibilityTest(unittest.TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_state_manager_appends_ops_events(self) -> None:
+        temp_dir = Path("state") / "_test_ops_events"
+        manager = StateManager(temp_dir)
+        try:
+            manager.append_ops_event(
+                {
+                    "severity": "warning",
+                    "task": "daily",
+                    "event": "daily_curate_deliverable_warnings",
+                    "day": "2026-05-03",
+                    "run_id": "run-123",
+                }
+            )
+
+            lines = manager.ops_events_path.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(lines), 1)
+            event = json.loads(lines[0])
+            self.assertIn("timestamp", event)
+            self.assertEqual(event["severity"], "warning")
+            self.assertEqual(event["event"], "daily_curate_deliverable_warnings")
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_state_manager_versions_daily_state_by_run_and_tracks_latest_pointer(self) -> None:
         temp_dir = Path("state") / "_test_daily_state_runs"
         manager = StateManager(temp_dir)

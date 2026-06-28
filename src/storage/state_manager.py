@@ -20,6 +20,7 @@ class StateManager:
         self.seen_ids_path = state_dir / "seen_ids.json"
         self.scores_path = state_dir / "scores.jsonl"
         self.heartbeat_path = state_dir / "heartbeat.log"
+        self.ops_events_path = state_dir / "ops_events.jsonl"
         self.transcript_failures_path = state_dir / "transcript_failures.jsonl"
         self.invariant_warnings_path = state_dir / "invariant_warnings.jsonl"
         self.source_status_path = state_dir / "latest_source_status.json"
@@ -65,6 +66,14 @@ class StateManager:
             "metadata": metadata or {},
         }
         with self.heartbeat_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+    def append_ops_event(self, payload: dict[str, Any]) -> None:
+        entry = {
+            "timestamp": utc_now().isoformat(),
+            **payload,
+        }
+        with self.ops_events_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
     def append_transcript_failure(self, payload: dict[str, Any]) -> None:

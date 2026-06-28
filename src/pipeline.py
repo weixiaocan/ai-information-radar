@@ -224,21 +224,27 @@ class Pipeline:
         day = target_date.isoformat() if target_date else "latest"
         resolved_run_id = run_id or (self.state_manager.resolve_latest_daily_run_id(day) if target_date else None)
         daily_items = self._load_items_for_daily_report(target_date, report_window, items)
-        if deliver and target_date and not self._daily_curate_run_ready(day, resolved_run_id, len(daily_items)):
+        if deliver and target_date and not self._daily_curate_artifacts_ready(day, resolved_run_id, len(daily_items)):
             manifest = self.state_manager.load_daily_manifest(day, resolved_run_id) if resolved_run_id else {}
-            degraded = self._daily_curate_degraded_summary(manifest)
-            reason = "daily_curate_degraded" if degraded else "daily_curate_incomplete"
             payload = {
                 "status": "blocked",
-                "reason": reason,
+                "reason": "daily_curate_incomplete",
                 "day": day,
                 "run_id": resolved_run_id or "",
                 "items": len(daily_items),
             }
-            if degraded:
-                payload["degraded"] = degraded
-            heartbeat_name = "daily_blocked_curate_degraded" if degraded else "daily_blocked_curate_incomplete"
-            self.state_manager.write_heartbeat(heartbeat_name, payload)
+            self._append_ops_event(
+                {
+                    "severity": "blocked",
+                    "task": "daily",
+                    "event": "daily_curate_incomplete",
+                    "day": day,
+                    "run_id": resolved_run_id or "",
+                    "deliver": deliver,
+                    "details": payload,
+                }
+            )
+            self.state_manager.write_heartbeat("daily_blocked_curate_incomplete", payload)
             return payload
         candidates_data = (
             self.state_manager.load_daily_candidates(day, resolved_run_id)
@@ -251,6 +257,53 @@ class Pipeline:
             else {"themes": [], "discussion_dispersion": "dispersed"}
         )
         selections_data = self.state_manager.load_daily_selections(day, resolved_run_id) if target_date else {"selections": []}
+        quality = (
+            self._assess_daily_curate_quality(
+                self.state_manager.load_daily_manifest(day, resolved_run_id) if target_date and resolved_run_id else {},
+                candidates_data,
+                themes_data,
+                selections_data,
+            )
+            if deliver and target_date
+            else {"blocking": {}, "warnings": {}}
+        )
+        if quality["blocking"]:
+            payload = {
+                "status": "blocked",
+                "reason": "daily_curate_blocking_errors",
+                "day": day,
+                "run_id": resolved_run_id or "",
+                "items": len(daily_items),
+                "blocking_errors": quality["blocking"],
+            }
+            if quality["warnings"]:
+                payload["warnings"] = quality["warnings"]
+            self._append_ops_event(
+                {
+                    "severity": "blocked",
+                    "task": "daily",
+                    "event": "daily_curate_blocking_errors",
+                    "day": day,
+                    "run_id": resolved_run_id or "",
+                    "deliver": deliver,
+                    "details": payload,
+                }
+            )
+            self.state_manager.write_heartbeat("daily_blocked_curate_blocking_errors", payload)
+            return payload
+        if quality["warnings"]:
+            self._append_ops_event(
+                {
+                    "severity": "warning",
+                    "task": "daily",
+                    "event": "daily_curate_deliverable_warnings",
+                    "day": day,
+                    "run_id": resolved_run_id or "",
+                    "deliver": deliver,
+                    "warnings": quality["warnings"],
+                    "action": "delivering_with_fallbacks",
+                }
+            )
         stats = {"total": len(daily_items)}
         invariant_warnings = self.daily_builder.collect_invariant_warnings(
             themes_data,
@@ -272,6 +325,7 @@ class Pipeline:
                 "themes": len(themes_data.get("themes", [])),
                 "selections": len(selections_data.get("selections", [])),
                 "invariant_warnings": len(invariant_warnings),
+                "degraded_warnings": len(quality["warnings"]),
                 "run_id": resolved_run_id or "",
             },
         )
@@ -344,6 +398,9 @@ class Pipeline:
         return {"run_id": resolved_run_id, "day": day, "candidates": candidates, "themes": themes_data, "selections": selections_data}
 
     def _daily_curate_run_ready(self, day: str, run_id: str | None, item_count: int) -> bool:
+        return self._daily_curate_artifacts_ready(day, run_id, item_count)
+
+    def _daily_curate_artifacts_ready(self, day: str, run_id: str | None, item_count: int) -> bool:
         if item_count <= 0:
             return True
         if not run_id:
@@ -354,7 +411,39 @@ class Pipeline:
         artifacts = manifest.get("artifacts", {})
         if not all(str(artifacts.get(name, "")).strip() for name in ("candidates", "themes", "selections")):
             return False
-        return not self._daily_curate_degraded_summary(manifest)
+        return True
+
+    def _assess_daily_curate_quality(
+        self,
+        manifest: dict[str, Any],
+        candidates_data: dict[str, Any],
+        themes_data: dict[str, Any],
+        selections_data: dict[str, Any],
+    ) -> dict[str, dict[str, Any]]:
+        degraded = self._daily_curate_degraded_summary(manifest)
+        blocking: dict[str, Any] = {}
+        warnings: dict[str, Any] = {}
+        for section, metadata in degraded.items():
+            fallback_mode = str(metadata.get("fallback_mode", "")).strip()
+            degraded_stage = str(metadata.get("degraded_stage", "")).strip()
+            if section == "candidates" and degraded_stage == "builder_copy" and fallback_mode == "per_item_copy_fallback":
+                issues = self._builder_copy_fallback_issues(candidates_data)
+                if issues:
+                    blocking[section] = {**metadata, "quality_issues": issues}
+                else:
+                    warnings[section] = {**metadata, "fallback_quality": "passed"}
+                continue
+            blocking[section] = metadata
+        if not blocking and not candidates_data.get("builder_hot_candidates") and not selections_data.get("selections"):
+            blocking.setdefault(
+                "daily_content",
+                {
+                    "degraded_reason": "empty_daily_digest",
+                    "degraded_stage": "daily_quality",
+                    "fallback_mode": "",
+                },
+            )
+        return {"blocking": blocking, "warnings": warnings}
 
     def _daily_curate_degraded_summary(self, manifest: dict[str, Any]) -> dict[str, dict[str, str]]:
         degraded = manifest.get("degraded", {})
@@ -377,6 +466,65 @@ class Pipeline:
                     "fallback_mode": fallback_mode,
                 }
         return summary
+
+    def _builder_copy_fallback_issues(self, candidates_data: dict[str, Any]) -> list[dict[str, Any]]:
+        issues: list[dict[str, Any]] = []
+        for candidate in candidates_data.get("builder_hot_candidates", []):
+            decision = candidate.get("decision", {}) if isinstance(candidate, dict) else {}
+            copy = candidate.get("copy", {}) if isinstance(candidate, dict) else {}
+            content_id = str(decision.get("content_id", "")).strip()
+            missing_fields = [
+                field
+                for field, value in {
+                    "source": decision.get("source"),
+                    "url": decision.get("url"),
+                    "topic_label": copy.get("topic_label"),
+                    "core_claim": copy.get("core_claim"),
+                    "excerpt": copy.get("excerpt"),
+                    "spotlight_text": copy.get("spotlight_text"),
+                }.items()
+                if not str(value or "").strip()
+            ]
+            short_fields = [
+                field
+                for field in ("core_claim", "excerpt", "spotlight_text")
+                if 0 < len(str(copy.get(field, "")).strip()) < 12
+            ]
+            mojibake_fields = [
+                field
+                for field in ("topic_label", "core_claim", "excerpt", "spotlight_text")
+                if self._looks_like_mojibake(str(copy.get(field, "")))
+            ]
+            if missing_fields or short_fields or mojibake_fields:
+                issues.append(
+                    {
+                        "content_id": content_id,
+                        "missing_fields": missing_fields,
+                        "short_fields": short_fields,
+                        "mojibake_fields": mojibake_fields,
+                    }
+                )
+        if not candidates_data.get("builder_hot_candidates"):
+            issues.append(
+                {
+                    "content_id": "",
+                    "missing_fields": ["builder_hot_candidates"],
+                    "short_fields": [],
+                    "mojibake_fields": [],
+                }
+            )
+        return issues
+
+    def _looks_like_mojibake(self, text: str) -> bool:
+        if "\ufffd" in text:
+            return True
+        markers = ("Ã", "Â", "â€", "锛", "鎵", "鐨", "浠", "涓", "绋", "妯")
+        return sum(1 for marker in markers if marker in text) >= 2
+
+    def _append_ops_event(self, payload: dict[str, Any]) -> None:
+        append_ops_event = getattr(self.state_manager, "append_ops_event", None)
+        if append_ops_event:
+            append_ops_event(payload)
 
     def x_refresh_site(self) -> dict[str, Any]:
         from src.ingestion.zara_fetcher import ZaraFetcher

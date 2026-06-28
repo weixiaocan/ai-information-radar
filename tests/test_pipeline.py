@@ -473,7 +473,7 @@ class PipelineHelpersTest(unittest.TestCase):
             },
         )
 
-    def test_daily_blocks_delivery_when_latest_curate_run_is_degraded(self) -> None:
+    def test_daily_blocks_delivery_when_latest_curate_run_has_blocking_errors(self) -> None:
         pipeline = Pipeline.__new__(Pipeline)
         target_item = ContentItem(
             content_id="rss_target",
@@ -521,6 +521,9 @@ class PipelineHelpersTest(unittest.TestCase):
                 },
             },
         }
+        pipeline.state_manager.load_daily_candidates.return_value = {"builder_hot_candidates": [], "editorial_candidates": []}
+        pipeline.state_manager.load_daily_themes.return_value = {"themes": [], "discussion_dispersion": "dispersed"}
+        pipeline.state_manager.load_daily_selections.return_value = {"selections": []}
         pipeline.state_manager.write_heartbeat = Mock()
         pipeline.daily_builder = Mock()
         pipeline._write_daily_report = Mock()
@@ -533,21 +536,21 @@ class PipelineHelpersTest(unittest.TestCase):
             payload = Pipeline.daily(pipeline, deliver=True)
 
         self.assertEqual(payload["status"], "blocked")
-        self.assertEqual(payload["reason"], "daily_curate_degraded")
-        self.assertEqual(payload["degraded"]["candidates"]["degraded_reason"], "builder_decision_failed")
-        self.assertEqual(payload["degraded"]["selections"]["degraded_stage"], "selection_decision")
+        self.assertEqual(payload["reason"], "daily_curate_blocking_errors")
+        self.assertEqual(payload["blocking_errors"]["candidates"]["degraded_reason"], "builder_decision_failed")
+        self.assertEqual(payload["blocking_errors"]["selections"]["degraded_stage"], "selection_decision")
         pipeline.daily_builder.build.assert_not_called()
         pipeline._write_daily_report.assert_not_called()
         pipeline.feishu.send.assert_not_called()
         pipeline.state_manager.write_heartbeat.assert_called_once_with(
-            "daily_blocked_curate_degraded",
+            "daily_blocked_curate_blocking_errors",
             {
                 "status": "blocked",
-                "reason": "daily_curate_degraded",
+                "reason": "daily_curate_blocking_errors",
                 "day": "2026-05-03",
                 "run_id": "run-123",
                 "items": 1,
-                "degraded": {
+                "blocking_errors": {
                     "candidates": {
                         "degraded_reason": "builder_decision_failed",
                         "degraded_stage": "builder_decision",
@@ -561,6 +564,98 @@ class PipelineHelpersTest(unittest.TestCase):
                 },
             },
         )
+
+    def test_daily_delivers_when_builder_copy_fallback_passes_quality_gate(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        target_item = ContentItem(
+            content_id="rss_target",
+            source_type="rss",
+            source_name="simon_willison",
+            title="Target",
+            url="https://example.com/target",
+            author="Simon",
+            published_at=datetime(2026, 5, 3, 12, tzinfo=timezone.utc),
+            fetched_at=datetime(2026, 5, 4, 1, tzinfo=timezone.utc),
+            body="Target body",
+            body_type="article",
+        )
+        pipeline._load_stage_items = Mock(return_value=[target_item])
+        pipeline.transcript_store = Mock()
+        pipeline.transcript_store.load_available_dates.return_value = [date(2026, 5, 3)]
+        pipeline.transcript_store.load_by_date.return_value = [target_item]
+        pipeline.state_manager = Mock()
+        pipeline.state_manager.load_latest_window.return_value = {}
+        pipeline.state_manager.resolve_latest_daily_run_id.return_value = "run-123"
+        pipeline.state_manager.load_daily_manifest.return_value = {
+            "run_id": "run-123",
+            "target_day": "2026-05-03",
+            "status": "completed",
+            "artifacts": {
+                "candidates": "candidates.json",
+                "themes": "themes.json",
+                "selections": "selections.json",
+            },
+            "degraded": {
+                "candidates": {
+                    "degraded_reason": "builder_copy_failed",
+                    "degraded_stage": "builder_copy",
+                    "fallback_mode": "per_item_copy_fallback",
+                },
+                "themes": {
+                    "degraded_reason": "theme_membership_failed",
+                    "degraded_stage": "theme_decision",
+                    "fallback_mode": "spotlight_only",
+                },
+                "selections": {
+                    "degraded_reason": "",
+                    "degraded_stage": "",
+                    "fallback_mode": "",
+                },
+            },
+        }
+        candidates_data = {
+            "builder_hot_candidates": [
+                {
+                    "decision": {
+                        "content_id": "zara_x_1",
+                        "source": "Builder",
+                        "url": "https://x.com/builder/status/1",
+                    },
+                    "copy": {
+                        "topic_label": "Agent debugging",
+                        "core_claim": "Agents need better observability for production debugging.",
+                        "excerpt": "A builder argues agent debugging needs traces, evals, and replayable execution.",
+                        "spotlight_text": "Agent debugging is shifting toward observability, traces, and replayable execution.",
+                    },
+                }
+            ],
+            "editorial_candidates": [],
+        }
+        selections_data = {"selections": []}
+        pipeline.state_manager.load_daily_candidates.return_value = candidates_data
+        pipeline.state_manager.load_daily_themes.return_value = {"themes": [], "discussion_dispersion": "dispersed"}
+        pipeline.state_manager.load_daily_selections.return_value = selections_data
+        pipeline.state_manager.write_heartbeat = Mock()
+        pipeline.state_manager.append_ops_event = Mock()
+        pipeline.daily_builder = Mock()
+        pipeline.daily_builder.collect_invariant_warnings.return_value = []
+        pipeline.daily_builder.build.return_value = {"msg_type": "interactive"}
+        pipeline._write_daily_report = Mock(return_value=Path("reports/daily/2026-05-03.md"))
+        pipeline.feishu = Mock()
+        pipeline._publish_site_report = Mock()
+
+        with unittest.mock.patch("src.pipeline.date") as mock_date:
+            mock_date.today.return_value = date(2026, 5, 4)
+            mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
+            payload = Pipeline.daily(pipeline, deliver=True)
+
+        self.assertEqual(payload, {"msg_type": "interactive"})
+        pipeline.feishu.send.assert_called_once_with({"msg_type": "interactive"})
+        pipeline.state_manager.append_ops_event.assert_called_once()
+        self.assertEqual(pipeline.state_manager.append_ops_event.call_args.args[0]["severity"], "warning")
+        self.assertEqual(pipeline.state_manager.append_ops_event.call_args.args[0]["event"], "daily_curate_deliverable_warnings")
+        heartbeat_metadata = pipeline.state_manager.write_heartbeat.call_args.args[1]
+        self.assertEqual(heartbeat_metadata["degraded_warnings"], 1)
 
     def test_daily_allows_spotlight_only_theme_degradation(self) -> None:
         pipeline = Pipeline.__new__(Pipeline)
