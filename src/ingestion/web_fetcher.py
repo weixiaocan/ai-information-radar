@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime, timezone
+from html import unescape
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
@@ -147,6 +148,21 @@ class WebFetcher:
                 return datetime.fromisoformat(value)
             except ValueError:
                 continue
+        text = unescape(re.sub(r"<!--.*?-->|<[^>]+>", " ", html, flags=re.DOTALL))
+        text = re.sub(r"\s+", " ", text)
+        date_match = re.search(
+            r"\b(?:Published\s+)?"
+            r"((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s+\d{4})\b",
+            text,
+            re.IGNORECASE,
+        )
+        if date_match:
+            raw_date = date_match.group(1).replace("Sept", "Sep")
+            for fmt in ("%b %d, %Y", "%B %d, %Y"):
+                try:
+                    return datetime.strptime(raw_date, fmt).replace(tzinfo=timezone.utc)
+                except ValueError:
+                    continue
         return utc_now()
 
     def _request(self, url: str) -> requests.Response:

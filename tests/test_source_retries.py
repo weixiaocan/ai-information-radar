@@ -109,6 +109,22 @@ class SourceRetryTest(unittest.TestCase):
         )
         self.assertTrue(all(not normalized_url.endswith("\\") for _, normalized_url in urls))
 
+    def test_web_fetch_extracts_anthropic_news_visible_date(self) -> None:
+        fetcher = WebFetcher(timeout_seconds=30)
+        html = '<div class="body-3 agate">Jun 30, 2026</div>'
+
+        published_at = fetcher._extract_publish_datetime(html, None)
+
+        self.assertEqual(published_at, datetime(2026, 6, 30, tzinfo=timezone.utc))
+
+    def test_web_fetch_extracts_anthropic_engineering_published_date(self) -> None:
+        fetcher = WebFetcher(timeout_seconds=30)
+        html = '<p class="date">Published <!-- -->Apr 23, 2026</p>'
+
+        published_at = fetcher._extract_publish_datetime(html, None)
+
+        self.assertEqual(published_at, datetime(2026, 4, 23, tzinfo=timezone.utc))
+
     @patch("src.utils.http_retry.time.sleep", return_value=None)
     def test_youtube_get_retries_timeout_and_recovers(self, _sleep: Mock) -> None:
         fetcher = YouTubeFetcher(api_key="key", timeout_seconds=30)
