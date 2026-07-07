@@ -14,7 +14,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--task",
         required=True,
-        choices=["ingest", "tier1", "tier2", "daily-curate", "daily", "weekly", "publish-site", "x-refresh-site", "all"],
+        choices=[
+            "ingest",
+            "tier1",
+            "tier2",
+            "daily-curate",
+            "daily",
+            "weekly",
+            "publish-site",
+            "recover-site",
+            "x-refresh-site",
+            "all",
+        ],
         help="Task to run",
     )
     parser.add_argument(
@@ -76,6 +87,9 @@ def main() -> None:
 
     if args.task == "publish-site":
         payload = pipeline.publish_site()
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    elif args.task == "recover-site":
+        payload = pipeline.recover_site_publish()
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     elif args.task == "x-refresh-site":
         payload = pipeline.x_refresh_site()

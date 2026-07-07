@@ -15,6 +15,11 @@ class SitePublishResult:
     commit_message: str | None
 
 
+@dataclass
+class SitePushRecoveryResult:
+    pushed: bool
+
+
 class SitePublisher:
     def __init__(
         self,
@@ -48,6 +53,13 @@ class SitePublisher:
     def sync_only(self) -> SiteSyncResult:
         self._validate_site_repo()
         return sync_site_content(self.project_root, self.site_repo_root)
+
+    def recover_pending_push(self) -> SitePushRecoveryResult:
+        self._validate_site_repo()
+        if not self._has_unpushed_commits():
+            return SitePushRecoveryResult(pushed=False)
+        self._push_with_retries()
+        return SitePushRecoveryResult(pushed=True)
 
     def _validate_site_repo(self) -> None:
         if not self.site_repo_root.exists():

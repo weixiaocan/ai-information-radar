@@ -6,7 +6,8 @@ param(
     [string]$IngestTime = "07:00",
     [string]$Tier1Time = "07:30",
     [string]$DailyCurateTime = "07:50",
-    [string]$WeeklyTime = "09:00"
+    [string]$WeeklyTime = "09:00",
+    [string[]]$SiteRecoveryTimes = @("08:30", "09:30", "10:30")
 )
 
 $ErrorActionPreference = "Stop"
@@ -100,3 +101,11 @@ Register-AIRadarTask -Name "Tier1" -TaskName "tier1" -TriggerTime $Tier1Time
 Register-AIRadarTask -Name "Daily Curate" -TaskName "daily-curate" -TriggerTime $DailyCurateTime
 Register-AIRadarTask -Name "Daily Digest" -TaskName "daily" -TriggerTime $DailyTime -Deliver
 Register-AIRadarTask -Name "Weekly Digest" -TaskName "weekly" -TriggerTime $WeeklyTime -Weekly -DaysOfWeek "Monday" -Deliver
+
+foreach ($recoveryTime in $SiteRecoveryTimes) {
+    if ([string]::IsNullOrWhiteSpace($recoveryTime)) {
+        continue
+    }
+    $taskSuffix = $recoveryTime.Replace(":", "")
+    Register-AIRadarTask -Name "Site Recovery $taskSuffix" -TaskName "recover-site" -TriggerTime $recoveryTime
+}

@@ -161,6 +161,28 @@ class SitePublisherTest(unittest.TestCase):
         self.assertIsNone(result.commit_message)
         publisher._run_git.assert_called_once_with("push", "origin", "main")
 
+    def test_recover_pending_push_pushes_unpushed_commits(self) -> None:
+        publisher = SitePublisher(Path("D:/project"), Path("D:/site"))
+        publisher._validate_site_repo = Mock()  # type: ignore[method-assign]
+        publisher._has_unpushed_commits = Mock(return_value=True)  # type: ignore[method-assign]
+        publisher._run_git = Mock(return_value="")  # type: ignore[method-assign]
+
+        result = publisher.recover_pending_push()
+
+        self.assertTrue(result.pushed)
+        publisher._run_git.assert_called_once_with("push", "origin", "main")
+
+    def test_recover_pending_push_skips_when_nothing_is_unpushed(self) -> None:
+        publisher = SitePublisher(Path("D:/project"), Path("D:/site"))
+        publisher._validate_site_repo = Mock()  # type: ignore[method-assign]
+        publisher._has_unpushed_commits = Mock(return_value=False)  # type: ignore[method-assign]
+        publisher._run_git = Mock(return_value="")  # type: ignore[method-assign]
+
+        result = publisher.recover_pending_push()
+
+        self.assertFalse(result.pushed)
+        publisher._run_git.assert_not_called()
+
 
 class PipelineSitePublishTest(unittest.TestCase):
     def test_daily_publish_error_does_not_break_digest(self) -> None:
@@ -197,3 +219,34 @@ class PipelineSitePublishTest(unittest.TestCase):
         self.assertTrue(payload["enabled"])
         self.assertTrue(payload["changed"])
         pipeline.state_manager.write_heartbeat.assert_called_once()
+
+    def test_recover_site_publish_records_recovery_result(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline.site_publisher = Mock()
+        pipeline.site_publisher.recover_pending_push.return_value = Mock(pushed=True)
+        pipeline.state_manager = Mock()
+
+        payload = Pipeline.recover_site_publish(pipeline)
+
+        self.assertTrue(payload["enabled"])
+        self.assertTrue(payload["pushed"])
+        pipeline.state_manager.write_heartbeat.assert_called_once_with(
+            "site_publish_recovery",
+            {"pushed": True},
+        )
+
+    def test_recover_site_publish_records_recovery_error(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline.site_publisher = Mock()
+        pipeline.site_publisher.recover_pending_push.side_effect = RuntimeError("push failed")
+        pipeline.state_manager = Mock()
+
+        payload = Pipeline.recover_site_publish(pipeline)
+
+        self.assertTrue(payload["enabled"])
+        self.assertFalse(payload["pushed"])
+        self.assertEqual(payload["error"], "push failed")
+        pipeline.state_manager.write_heartbeat.assert_called_once_with(
+            "site_publish_recovery_error",
+            {"error": "push failed"},
+        )

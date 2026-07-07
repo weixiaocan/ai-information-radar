@@ -112,6 +112,12 @@ SITE_PUSH_RETRY_DELAYS_SECONDS=180,300,600
 D:\anaconda\envs\ai-radar\python.exe main.py --task publish-site
 ```
 
+只恢复已经提交但推送失败的站点更新：
+
+```powershell
+D:\anaconda\envs\ai-radar\python.exe main.py --task recover-site
+```
+
 用仓库内置的 starter 初始化独立站点仓库：
 
 ```powershell

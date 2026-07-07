@@ -11,6 +11,7 @@ Recommended setup on Windows:
    powershell -ExecutionPolicy Bypass -File .\scripts\run_pipeline.ps1 -PythonExe "D:\anaconda\envs\ai-radar\python.exe" -Task daily -Deliver
 
 If `SITE_PUBLISH_ENABLED=true` is set in `.env`, the `daily` and `weekly` tasks will also sync and push the public site repository after the digest is written.
+The registration script also creates site recovery tasks at 08:30, 09:30, and 10:30 by default. These run `recover-site`, which only pushes already committed site changes that failed to reach GitHub.
 
 Tasks created by `scripts/register_tasks.ps1`:
 
@@ -33,5 +34,9 @@ Tasks created by `scripts/register_tasks.ps1`:
 5. AI Radar Weekly Digest
    Trigger: Weekly Monday at 09:00
    Command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\run_pipeline.ps1" -PythonExe "D:\anaconda\envs\ai-radar\python.exe" -Task weekly -Deliver
+
+6. AI Radar Site Recovery 0830 / 0930 / 1030
+   Trigger: Daily at 08:30, 09:30, and 10:30
+   Command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\run_pipeline.ps1" -PythonExe "D:\anaconda\envs\ai-radar\python.exe" -Task recover-site
 
 Logs are written to `state/logs/`.

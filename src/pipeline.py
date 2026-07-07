@@ -745,6 +745,30 @@ class Pipeline:
             "commit_message": result.commit_message,
         }
 
+    def recover_site_publish(self) -> dict[str, Any]:
+        if self.site_publisher is None:
+            return {"enabled": False, "reason": "site_publishing_disabled"}
+        try:
+            result = self.site_publisher.recover_pending_push()
+        except Exception as exc:
+            self.state_manager.write_heartbeat(
+                "site_publish_recovery_error",
+                {
+                    "error": str(exc),
+                },
+            )
+            return {
+                "enabled": True,
+                "pushed": False,
+                "error": str(exc),
+            }
+
+        self.state_manager.write_heartbeat("site_publish_recovery", {"pushed": result.pushed})
+        return {
+            "enabled": True,
+            "pushed": result.pushed,
+        }
+
     def _load_stage_items(self, stage: str) -> list[ContentItem]:
         content_ids = self.state_manager.load_stage_content_ids(stage)
         if not content_ids:
