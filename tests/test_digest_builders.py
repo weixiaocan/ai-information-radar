@@ -227,7 +227,7 @@ class DailyDigestBuilderTest(unittest.TestCase):
         card_texts = [element.get("text", {}).get("content", "") for element in payload["card"]["elements"] if element.get("tag") == "div"]
         self.assertTrue(any("should remain" in text for text in card_texts))
 
-    def test_supplementary_candidates_render_in_one_line(self) -> None:
+    def test_supplementary_candidates_render_as_block(self) -> None:
         builder = DailyDigestBuilder()
         line = builder._render_supplementary_line(
             {
@@ -241,7 +241,7 @@ class DailyDigestBuilderTest(unittest.TestCase):
         self.assertIn("**Simon Willison**", line)
         self.assertIn("[Another story](https://example.com/another)", line)
         self.assertIn("Supplementary note", line)
-        self.assertNotIn("\n", line)
+        self.assertIn("\n", line)
 
     def test_supplementary_candidates_can_expand_to_second_item_from_same_source(self) -> None:
         payload = DailyDigestBuilder().build(

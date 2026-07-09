@@ -572,8 +572,8 @@ class DailyDigestBuilder:
         item_type = str(item.get("type", "article")).strip().lower()
         icon = self._source_icon(item_type)
         if title:
-            return f"{icon} **{display_name}** · [{title}]({url}) · {brief}"
-        return f"{icon} **{display_name}** · [{display_name}]({url}) · {brief}"
+            return f"{icon} **{display_name}**\n[{title}]({url})\n{brief}"
+        return f"{icon} **{display_name}**\n[{display_name}]({url})\n{brief}"
 
     def _render_markdown_supplementary_line(self, item: dict[str, Any]) -> str:
         display_name = self._get_display_name(str(item.get("source_name", "未知来源")).strip() or "未知来源")
@@ -583,8 +583,8 @@ class DailyDigestBuilder:
         item_type = str(item.get("type", "article")).strip().lower()
         icon = self._source_icon(item_type)
         if title:
-            return f"- {icon} **{display_name}** · [{title}]({url}) · {brief}"
-        return f"- {icon} **{display_name}** · [{display_name}]({url}) · {brief}"
+            return f"{icon} **{display_name}**\n[{title}]({url})\n{brief}"
+        return f"{icon} **{display_name}**\n[{display_name}]({url})\n{brief}"
 
     def _get_display_name(self, source_name: str) -> str:
         return self.display_name_map.get(source_name, self._fallback_display_name(source_name))
