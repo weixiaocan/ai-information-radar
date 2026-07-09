@@ -230,19 +230,27 @@ class DailyDecisionResolver:
     def _supplementary_editorial_brief(self, candidate: dict[str, Any]) -> str:
         summary = self._strip_terminal_punctuation(str(candidate.get("summary", "")).strip())
         if summary and not self._looks_mostly_english(summary):
-            return summary
+            return self._truncate_text(summary, 100)
         source_name = str(candidate.get("channel_or_source", "")).strip()
         title = str(candidate.get("title", "")).strip()
         if source_name and title:
-            return f"这条内容来自 {source_name}，标题为《{title}》，因未进入今日精选，仅作为补充候选保留。"
+            return self._truncate_text(
+                f"这条内容来自 {source_name}，关注《{title}》，可作为今日精选之外的延伸阅读。",
+                100,
+            )
         if source_name:
-            return f"这条内容来自 {source_name}，因未进入今日精选，仅作为补充候选保留。"
+            return f"这条内容来自 {source_name}，可作为今日精选之外的延伸阅读。"
         return "这条内容未进入今日精选，仅作为补充候选保留。"
 
     def _looks_mostly_english(self, text: str) -> bool:
         letters = re.findall(r"[A-Za-z]", text)
         cjk = re.findall(r"[\u4e00-\u9fff]", text)
         return len(letters) >= 20 and len(letters) > len(cjk) * 2
+
+    def _truncate_text(self, text: str, max_len: int) -> str:
+        if len(text) <= max_len:
+            return text
+        return text[: max_len - 1].rstrip(" ，,。；;：:、") + "…"
 
     def _strip_terminal_punctuation(self, text: str) -> str:
         return text.rstrip("銆傦紵锛?!?锛?")

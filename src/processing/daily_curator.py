@@ -144,11 +144,16 @@ class DailyCurator:
         source = get_original_source_name(item)
         summary = str(item.ai_summary or item.body[:160]).strip()
         if not summary:
-            return item.title.strip()
-        return f"{source} 这条内容主要讲的是 {summary}".strip()
+            return self._normalize_value_pitch(item.title.strip())
+        return self._normalize_value_pitch(f"{source} 这条内容主要讲的是 {summary}")
 
     def _coerce_candidate_index(self, value: Any) -> int | None:
         return value if isinstance(value, int) and value > 0 else None
 
     def _normalize_value_pitch(self, value: Any) -> str:
-        return str(value or "").strip()
+        return self._truncate_text(str(value or "").strip(), 100)
+
+    def _truncate_text(self, text: str, max_len: int) -> str:
+        if len(text) <= max_len:
+            return text
+        return text[: max_len - 1].rstrip(" ，,。；;：:、") + "…"
