@@ -156,4 +156,4 @@ class DailyCurator:
     def _truncate_text(self, text: str, max_len: int) -> str:
         if len(text) <= max_len:
             return text
-        return text[: max_len - 1].rstrip(" ，,。；;：:、") + "…"
+        return text[:max_len].rstrip(" ，,。；;：:、.…")

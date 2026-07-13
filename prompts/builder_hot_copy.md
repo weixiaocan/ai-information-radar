@@ -5,7 +5,8 @@
 - 每条只输出一条记录
 - `topic_label` 为 8-16 字中文短语
 - `core_claim`、`excerpt`、`spotlight_text` 必须是自然中文
-- `core_claim`、`excerpt`、`spotlight_text` 都控制在 60-100 个中文字
+- `core_claim`、`excerpt`、`spotlight_text` 都不超过 100 个中文字，建议 50-80 字
+- 句子必须完整，不要用省略号结尾
 - `spotlight_text` 必须是具体事实句，不要写成“某人在讨论某问题”
 - `core_claim`、`excerpt`、`spotlight_text` 不要原样复述英文原文，也不要输出截断的半句
 

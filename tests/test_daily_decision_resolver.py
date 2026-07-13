@@ -183,6 +183,30 @@ class DailyDecisionResolverTest(unittest.TestCase):
         self.assertIn("这条内容来自 TechCrunch AI", brief)
         self.assertNotIn("Tonight is your last chance", brief)
 
+    def test_resolver_trims_supplementary_brief_without_ellipsis(self) -> None:
+        long_summary = "这是一条很长的中文摘要，" * 12
+
+        _, themes, _ = self.resolver.resolve(
+            candidates_data={
+                "editorial_top10": [
+                    {
+                        "content_id": "rss_extra",
+                        "type": "article",
+                        "channel_or_source": "TechCrunch AI",
+                        "title": "Long summary",
+                        "url": "https://example.com/extra",
+                        "summary": long_summary,
+                    }
+                ]
+            },
+            themes_data={"themes": [], "spotlight_posts": []},
+            selections_data={"selections": []},
+        )
+
+        brief = themes["supplementary_items"][0]["brief"]
+        self.assertLessEqual(len(brief), 100)
+        self.assertFalse(brief.endswith("…"))
+
     def test_resolver_dedupes_duplicate_spotlight_posts(self) -> None:
         _, themes, _ = self.resolver.resolve(
             candidates_data={},
