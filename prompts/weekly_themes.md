@@ -24,6 +24,8 @@
 4. 优先做“主题归纳”，不要按来源分组
 5. 如果多个内容都在谈同一个趋势，要合并成一个主题
 6. 每条代表内容额外输出 source_name 和 type，便于渲染来源
+7. `highlights[].title` 必须完整复制输入里的 title，不要截断、改写或用省略号
+8. `type` 只能是 `youtube`、`article`、`builder`；X/Twitter/Zara X 帖子必须用 `builder`
 
 输出 JSON：
 {{
@@ -33,7 +35,8 @@
       "summary": "...",
       "highlights": [
         {{"title": "...", "url": "...", "source_name": "...", "type": "youtube"}},
-        {{"title": "...", "url": "...", "source_name": "...", "type": "article"}}
+        {{"title": "...", "url": "...", "source_name": "...", "type": "article"}},
+        {{"title": "...", "url": "...", "source_name": "...", "type": "builder"}}
       ]
     }}
   ]

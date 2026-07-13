@@ -491,6 +491,70 @@ class WeeklyDigestBuilderTest(unittest.TestCase):
         self.assertIn("[AI psychosis: cycling between two mental states every single day](https://x.com/zarazhangrui/status/1)", markdown)
         self.assertNotIn("[Zara Zhang: AI psychosis: cycling between two mental states every single day]", markdown)
 
+    def test_weekly_digest_restores_highlight_metadata_from_source_items(self) -> None:
+        client = Mock()
+        client.weekly_themes.return_value = {
+            "themes": [
+                {
+                    "title": "Coding agents",
+                    "summary": "Theme summary",
+                    "highlights": [
+                        {
+                            "title": "We've put together a short history of how Claude Code came to be, told by the pe",
+                            "url": "https://x.com/claudeai/status/2074244664199115201",
+                            "source_name": "Claude",
+                            "type": "youtube",
+                        },
+                        {
+                            "title": "Second item",
+                            "url": "https://example.com/second",
+                            "source_name": "TechCrunch AI",
+                            "type": "article",
+                        },
+                    ],
+                }
+            ]
+        }
+        client.weekly_pitch.return_value = "pitch"
+        builder = WeeklyDigestBuilder(client, "prompts/weekly_pitch.md", "prompts/weekly_themes.md")
+        items = [
+            ContentItem(
+                content_id="zara_x_1",
+                source_type="zara_x",
+                source_name="zara_x",
+                title="Claude: We've put together a short history of how Claude Code came to be, told by the people who built it",
+                url="https://x.com/claudeai/status/2074244664199115201",
+                author="Claude",
+                published_at=datetime(2026, 7, 6, tzinfo=timezone.utc),
+                fetched_at=datetime(2026, 7, 6, 1, tzinfo=timezone.utc),
+                body="Body",
+                body_type="summary",
+                ai_summary="Summary",
+            ),
+            ContentItem(
+                content_id="rss_1",
+                source_type="rss",
+                source_name="techcrunch_ai",
+                title="Second item",
+                url="https://example.com/second",
+                author=None,
+                published_at=datetime(2026, 7, 6, tzinfo=timezone.utc),
+                fetched_at=datetime(2026, 7, 6, 1, tzinfo=timezone.utc),
+                body="Body",
+                body_type="article",
+                ai_summary="Summary",
+            ),
+        ]
+
+        markdown = builder.render_markdown(items)
+
+        self.assertIn(
+            "𝕏 `Claude` · [We've put together a short history of how Claude Code came to be, told by the people who built it]",
+            markdown,
+        )
+        self.assertNotIn("▶️ `Claude`", markdown)
+        self.assertNotIn("told by the pe]", markdown)
+
     def test_weekly_digest_top_section_uses_playlist_display_name(self) -> None:
         client = Mock()
         client.weekly_themes.return_value = {"themes": []}

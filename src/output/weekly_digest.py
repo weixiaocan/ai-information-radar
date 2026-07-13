@@ -100,7 +100,7 @@ class WeeklyDigestBuilder:
     def _build_themes(self, items: list[ContentItem]) -> list[dict[str, Any]]:
         source_items = [item for item in items if item.ai_summary or item.body]
         payload = self.client.weekly_themes(self.themes_prompt_path, source_items)
-        return self._filter_valid_themes(payload.get("themes", []))
+        return self._filter_valid_themes(payload.get("themes", []), source_items)
 
     def _build_top_payloads(self, items: list[ContentItem]) -> list[dict[str, Any] | None]:
         ranked = sorted(
@@ -215,10 +215,8 @@ class WeeklyDigestBuilder:
         title = str(highlight.get("title", "")).strip()
         url = str(highlight.get("url", "")).strip()
         source_name = str(highlight.get("source_name", "")).strip()
-        source_type = str(highlight.get("type", "")).strip().lower()
-        if not source_type:
-            source_type = "youtube" if "youtube.com" in url or "youtu.be" in url else "article"
-        emoji = "▶️" if source_type == "youtube" else "📰"
+        source_type = self._resolve_highlight_type(str(highlight.get("type", "")).strip().lower(), url)
+        emoji = self._highlight_icon(source_type)
         display_name = self._get_display_name(source_name) if source_name else self._fallback_display_name("unknown")
         title = self._strip_duplicate_source_prefix(title, display_name)
         if title and url:
@@ -247,7 +245,8 @@ class WeeklyDigestBuilder:
         window_start = window_end - timedelta(days=6)
         return window_end.isocalendar().week, window_start, window_end
 
-    def _filter_valid_themes(self, themes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _filter_valid_themes(self, themes: list[dict[str, Any]], items: list[ContentItem] | None = None) -> list[dict[str, Any]]:
+        item_by_url = self._items_by_url(items or [])
         valid: list[dict[str, Any]] = []
         for theme in themes:
             highlights = theme.get("highlights", [])
@@ -262,13 +261,63 @@ class WeeklyDigestBuilder:
                 source_name = str(highlight.get("source_name", "")).strip()
                 if not title or not url or not source_name:
                     continue
-                normalized_highlights.append(highlight)
+                normalized_highlights.append(self._normalize_highlight(highlight, item_by_url))
             if len(normalized_highlights) < 2:
                 continue
             normalized_theme = dict(theme)
             normalized_theme["highlights"] = normalized_highlights
             valid.append(normalized_theme)
         return valid
+
+    def _items_by_url(self, items: list[ContentItem]) -> dict[str, ContentItem]:
+        result: dict[str, ContentItem] = {}
+        for item in items:
+            key = self._normalize_url(item.url)
+            if key and key not in result:
+                result[key] = item
+        return result
+
+    def _normalize_highlight(self, highlight: dict[str, Any], item_by_url: dict[str, ContentItem]) -> dict[str, Any]:
+        normalized = dict(highlight)
+        url = str(normalized.get("url", "")).strip()
+        item = item_by_url.get(self._normalize_url(url))
+        if item is not None:
+            normalized["title"] = item.title
+            normalized["source_name"] = get_original_source_name(item)
+            normalized["type"] = self._highlight_type_for_item(item)
+        else:
+            normalized["type"] = self._resolve_highlight_type(str(normalized.get("type", "")).strip().lower(), url)
+        return normalized
+
+    def _highlight_type_for_item(self, item: ContentItem) -> str:
+        if item.source_type == "youtube":
+            return "youtube"
+        if item.source_type == "zara_x" or self._is_x_url(item.url):
+            return "builder"
+        return "article"
+
+    def _resolve_highlight_type(self, source_type: str, url: str) -> str:
+        if self._is_x_url(url):
+            return "builder"
+        if source_type == "youtube":
+            return "youtube"
+        if source_type in {"builder", "x", "twitter", "zara_x"}:
+            return "builder"
+        return "article"
+
+    def _highlight_icon(self, source_type: str) -> str:
+        if source_type == "youtube":
+            return "▶️"
+        if source_type == "builder":
+            return "𝕏"
+        return "📰"
+
+    def _normalize_url(self, url: str) -> str:
+        return str(url or "").strip().rstrip("/")
+
+    def _is_x_url(self, url: str) -> bool:
+        lowered = str(url or "").lower()
+        return "x.com/" in lowered or "twitter.com/" in lowered
 
     def _get_display_name(self, source_name: str) -> str:
         return self.display_name_map.get(source_name, self._fallback_display_name(source_name))
