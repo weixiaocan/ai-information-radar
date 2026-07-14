@@ -426,7 +426,10 @@ class Pipeline:
         for section, metadata in degraded.items():
             fallback_mode = str(metadata.get("fallback_mode", "")).strip()
             degraded_stage = str(metadata.get("degraded_stage", "")).strip()
-            if section == "candidates" and degraded_stage == "builder_copy" and fallback_mode == "per_item_copy_fallback":
+            if section == "candidates" and (
+                (degraded_stage == "builder_copy" and fallback_mode == "per_item_copy_fallback")
+                or (degraded_stage == "builder_decision" and fallback_mode in {"backfill_llm_rewrite", "backfill_low_confidence_llm_rewrite"})
+            ):
                 issues = self._builder_copy_fallback_issues(candidates_data)
                 if issues:
                     blocking[section] = {**metadata, "quality_issues": issues}

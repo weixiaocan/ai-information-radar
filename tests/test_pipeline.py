@@ -657,6 +657,57 @@ class PipelineHelpersTest(unittest.TestCase):
         heartbeat_metadata = pipeline.state_manager.write_heartbeat.call_args.args[1]
         self.assertEqual(heartbeat_metadata["degraded_warnings"], 1)
 
+    def test_daily_delivers_when_builder_backfill_rewrite_passes_quality_gate(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        manifest = {
+            "degraded": {
+                "candidates": {
+                    "degraded_reason": "builder_decision_failed",
+                    "degraded_stage": "builder_decision",
+                    "fallback_mode": "backfill_llm_rewrite",
+                },
+                "themes": {
+                    "degraded_reason": "",
+                    "degraded_stage": "",
+                    "fallback_mode": "",
+                },
+                "selections": {
+                    "degraded_reason": "",
+                    "degraded_stage": "",
+                    "fallback_mode": "",
+                },
+            },
+        }
+        candidates_data = {
+            "builder_hot_candidates": [
+                {
+                    "decision": {
+                        "content_id": "zara_x_1",
+                        "source": "Builder",
+                        "url": "https://x.com/builder/status/1",
+                    },
+                    "copy": {
+                        "topic_label": "Agent debugging",
+                        "core_claim": "团队应关注真实构建目标，而不是刷 AI 工具调用量。",
+                        "excerpt": "团队应关注真实构建目标，而不是刷 AI 工具调用量。",
+                        "spotlight_text": "团队应关注真实构建目标，而不是刷 AI 工具调用量",
+                    },
+                }
+            ],
+            "editorial_candidates": [],
+        }
+
+        quality = Pipeline._assess_daily_curate_quality(
+            pipeline,
+            manifest,
+            candidates_data,
+            {"themes": [], "discussion_dispersion": "dispersed"},
+            {"selections": []},
+        )
+
+        self.assertEqual(quality["blocking"], {})
+        self.assertEqual(quality["warnings"]["candidates"]["fallback_mode"], "backfill_llm_rewrite")
+
     def test_daily_allows_spotlight_only_theme_degradation(self) -> None:
         pipeline = Pipeline.__new__(Pipeline)
         manifest = {
