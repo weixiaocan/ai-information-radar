@@ -200,6 +200,137 @@ class DailyCandidateBuilderTest(unittest.TestCase):
 
         self.assertEqual(builder_candidate_decision(payload["builder_hot_candidates"][0])["source"], "Garry Tan")
 
+    def test_builder_keeps_llm_selected_signal_even_when_heuristic_thinks_weak(self) -> None:
+        client = Mock()
+        client.daily_builder_hot_decisions.return_value = {
+            "signals": [
+                {
+                    "content_id": "zara_x_1",
+                    "source": "Builder",
+                    "url": "https://x.com/1",
+                    "topic_key": "短帖观点",
+                }
+            ]
+        }
+        client.daily_builder_hot_copy.return_value = {
+            "signals": [
+                {
+                    "content_id": "zara_x_1",
+                    "source": "Builder",
+                    "url": "https://x.com/1",
+                    "topic_label": "短帖观点",
+                    "core_claim": "这个短帖指出，AI 工具使用量不等于真实产品进展。",
+                    "angle": "观点提醒",
+                    "excerpt": "AI 工具使用量不等于真实产品进展。",
+                    "spotlight_text": "这个短帖提醒，团队不应把 AI 工具调用量误当成真实产品进展",
+                }
+            ]
+        }
+        builder = DailyCandidateBuilder(client, Path("prompts/theme_signal_extractor.md"))
+        items = [
+            ContentItem(
+                content_id="zara_x_1",
+                source_type="zara_x",
+                source_name="zara_x",
+                title="Short AI point",
+                url="https://x.com/1",
+                author="Builder",
+                published_at=datetime(2026, 5, 5, tzinfo=timezone.utc),
+                fetched_at=datetime(2026, 5, 5, 1, tzinfo=timezone.utc),
+                body="AI usage is not progress.",
+                body_type="tweet",
+                ai_summary="AI usage is not progress.",
+            )
+        ]
+
+        payload = builder.build(items)
+
+        self.assertEqual(len(payload["builder_hot_candidates"]), 1)
+        candidate = payload["builder_hot_candidates"][0]
+        self.assertEqual(builder_candidate_decision(candidate)["content_id"], "zara_x_1")
+        self.assertEqual(candidate["fallback_mode"], "kept_llm_selected_signal")
+
+    def test_backfill_uses_llm_rewrite_instead_of_code_truncation(self) -> None:
+        client = Mock()
+        client.daily_builder_hot_decisions.return_value = {
+            "signals": [
+                {
+                    "content_id": "zara_x_1",
+                    "source": "Builder One",
+                    "url": "https://x.com/1",
+                    "topic_key": "模型更新",
+                }
+            ]
+        }
+        client.daily_builder_hot_copy.side_effect = [
+            {
+                "signals": [
+                    {
+                        "content_id": "zara_x_1",
+                        "source": "Builder One",
+                        "url": "https://x.com/1",
+                        "topic_label": "模型更新",
+                        "core_claim": "Builder One 分享了一个模型更新。",
+                        "angle": "产品更新",
+                        "excerpt": "Builder One 分享了一个模型更新。",
+                        "spotlight_text": "Builder One 分享了一个模型更新",
+                    }
+                ]
+            },
+            {
+                "signals": [
+                    {
+                        "content_id": "zara_x_2",
+                        "source": "Builder Two",
+                        "url": "https://x.com/2",
+                        "topic_label": "Token 误用",
+                        "core_claim": "Builder Two 指出，团队应关注真实构建目标，而不是刷 AI 工具调用量。",
+                        "angle": "实践提醒",
+                        "excerpt": "团队应关注真实构建目标，而不是刷 AI 工具调用量。",
+                        "spotlight_text": "Builder Two 指出，团队应关注真实构建目标，而不是刷 AI 工具调用量",
+                    }
+                ]
+            },
+        ]
+        builder = DailyCandidateBuilder(client, Path("prompts/theme_signal_extractor.md"))
+        builder._is_weak_signal = Mock(return_value=False)  # type: ignore[method-assign]
+        items = [
+            ContentItem(
+                content_id="zara_x_1",
+                source_type="zara_x",
+                source_name="zara_x",
+                title="Model update",
+                url="https://x.com/1",
+                author="Builder One",
+                published_at=datetime(2026, 5, 5, tzinfo=timezone.utc),
+                fetched_at=datetime(2026, 5, 5, 1, tzinfo=timezone.utc),
+                body="A concrete model update for AI builders.",
+                body_type="tweet",
+                ai_summary="A concrete model update for AI builders.",
+            ),
+            ContentItem(
+                content_id="zara_x_2",
+                source_type="zara_x",
+                source_name="zara_x",
+                title="Token misuse",
+                url="https://x.com/2",
+                author="Builder Two",
+                published_at=datetime(2026, 5, 5, tzinfo=timezone.utc),
+                fetched_at=datetime(2026, 5, 5, 1, tzinfo=timezone.utc),
+                body="在旧金山，很多团队开始用 AI agent 刷 token，但真正的问题是他们没有说明自己到底要构建什么。",
+                body_type="tweet",
+                ai_summary="在旧金山，很多团队开始用 AI agent 刷 token，但真正的问题是他们没有说明自己到底要构建什么。",
+            ),
+        ]
+
+        payload = builder.build(items)
+
+        self.assertEqual(client.daily_builder_hot_copy.call_count, 2)
+        backfilled = payload["builder_hot_candidates"][1]
+        self.assertEqual(builder_candidate_decision(backfilled)["content_id"], "zara_x_2")
+        self.assertEqual(builder_candidate_copy(backfilled)["spotlight_text"], "团队应关注真实构建目标，而不是刷 AI 工具调用量")
+        self.assertEqual(backfilled["fallback_mode"], "backfill_llm_rewrite")
+
     def test_builder_uses_structured_chinese_fallback_when_copy_generation_stays_invalid(self) -> None:
         client = Mock()
         client.daily_builder_hot_decisions.return_value = {

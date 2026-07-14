@@ -109,8 +109,7 @@ class DailyCandidateBuilder:
             topic_label = copy_payload["topic_label"]
             core_claim = copy_payload["core_claim"]
             excerpt = copy_payload["excerpt"]
-            if item and self._is_weak_signal(item, topic_label, core_claim, excerpt):
-                continue
+            weak_signal = bool(item and self._is_weak_signal(item, topic_label, core_claim, excerpt))
 
             seen_urls.add(url)
             resolved_source = self._resolve_builder_source(source, item, items_by_url.get(url))
@@ -135,6 +134,13 @@ class DailyCandidateBuilder:
                     degraded_reason="builder_copy_failed",
                     degraded_stage="builder_copy",
                     fallback_mode="copy_from_item_excerpt",
+                )
+            elif weak_signal:
+                candidate = with_degraded_fields(
+                    candidate,
+                    degraded_reason="weak_signal_review",
+                    degraded_stage="builder_decision",
+                    fallback_mode="kept_llm_selected_signal",
                 )
             candidates.append(candidate)
 
@@ -195,52 +201,21 @@ class DailyCandidateBuilder:
             raw_excerpt = (item.ai_summary or item.body or "").strip()
             if not raw_excerpt:
                 continue
-            fallback_signal = None
-            if self._looks_mostly_english(raw_excerpt):
-                fallback_signal = self._synthesize_signal_from_item(item)
-                if not fallback_signal:
-                    continue
             if not self._is_builder_relevant(item, raw_excerpt):
                 continue
-            if self._is_backfill_too_weak(item, raw_excerpt):
-                continue
-            if self._is_backfill_too_vague(item, raw_excerpt):
-                continue
-
-            if fallback_signal:
-                candidates.append(fallback_signal)
-                existing_ids.add(item.content_id)
-                existing_urls.add(item.url)
-                continue
-
-            excerpt = self._truncate_text(raw_excerpt, 60)
-            source = item.author or item.source_name
-            spotlight_text = self._truncate_text(self._normalize_spotlight_text(source, raw_excerpt), 90)
-            candidates.append(
-                with_degraded_fields(
-                    normalize_builder_hot_candidate(
-                    {
-                        "decision": {
-                            "content_id": item.content_id,
-                            "source": source,
-                            "url": item.url,
-                            "topic_key": item.title[:40] or "Builder 观察",
-                            "entered_hot_pool": True,
-                        },
-                        "copy": {
-                            "topic_label": item.title[:40] or "Builder 观察",
-                            "core_claim": excerpt,
-                            "angle": "补充观察",
-                            "excerpt": excerpt,
-                            "spotlight_text": spotlight_text,
-                        },
-                    }
-                    ),
-                    degraded_reason="builder_decision_failed",
-                    degraded_stage="builder_decision",
-                    fallback_mode="backfill_from_item",
-                )
+            fallback_signal = self._synthesize_signal_from_item(
+                item,
+                degraded_reason="builder_decision_failed",
+                degraded_stage="builder_decision",
+                fallback_mode=(
+                    "backfill_low_confidence_llm_rewrite"
+                    if self._is_backfill_too_weak(item, raw_excerpt) or self._is_backfill_too_vague(item, raw_excerpt)
+                    else "backfill_llm_rewrite"
+                ),
             )
+            if not fallback_signal:
+                continue
+            candidates.append(fallback_signal)
             existing_ids.add(item.content_id)
             existing_urls.add(item.url)
 
@@ -663,10 +638,10 @@ class DailyCandidateBuilder:
         source_name = source.strip()
         if source_name:
             patterns = [
-                rf"^{re.escape(source_name)}\s*[:：，,\- ]*说",
-                rf"^{re.escape(source_name)}\s*[:：，,\- ]*认为",
-                rf"^{re.escape(source_name)}\s*[:：，,\- ]*表示",
-                rf"^{re.escape(source_name)}\s*[:：，,\- ]*指出",
+                rf"^{re.escape(source_name)}\s*[:：，,\- ]*说\s*[:：，,\- ]*",
+                rf"^{re.escape(source_name)}\s*[:：，,\- ]*认为\s*[:：，,\- ]*",
+                rf"^{re.escape(source_name)}\s*[:：，,\- ]*表示\s*[:：，,\- ]*",
+                rf"^{re.escape(source_name)}\s*[:：，,\- ]*指出\s*[:：，,\- ]*",
                 rf"^{re.escape(source_name)}\s*[:：，,\- ]*",
             ]
             for pattern in patterns:
@@ -791,7 +766,14 @@ class DailyCandidateBuilder:
                 issues.append(f"`{field}` is truncated; rewrite it as a complete sentence.")
         return issues
 
-    def _synthesize_signal_from_item(self, item: ContentItem) -> dict[str, Any] | None:
+    def _synthesize_signal_from_item(
+        self,
+        item: ContentItem,
+        *,
+        degraded_reason: str = "builder_copy_failed",
+        degraded_stage: str = "builder_copy",
+        fallback_mode: str = "copy_from_item_excerpt",
+    ) -> dict[str, Any] | None:
         source = self._resolve_builder_source(item.author or item.source_name, item, item)
         decision = {
             "content_id": item.content_id,
@@ -816,9 +798,9 @@ class DailyCandidateBuilder:
                 core_claim=repaired["core_claim"],
             ),
             ),
-            degraded_reason="builder_copy_failed",
-            degraded_stage="builder_copy",
-            fallback_mode="copy_from_item_excerpt",
+            degraded_reason=degraded_reason,
+            degraded_stage=degraded_stage,
+            fallback_mode=fallback_mode,
         )
 
     def _repair_builder_copy(
