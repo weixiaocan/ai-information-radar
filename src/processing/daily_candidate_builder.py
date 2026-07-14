@@ -682,7 +682,24 @@ class DailyCandidateBuilder:
         stripped = self._strip_terminal_punctuation(text.strip())
         if len(stripped) <= max_len:
             return stripped
-        return stripped[: max_len - 1].rstrip() + "…"
+        sentence = self._longest_complete_prefix(stripped, max_len, r"[。？！!?；;]")
+        if sentence:
+            return sentence
+        clause = self._longest_complete_prefix(stripped, max_len, r"[，,、：:]")
+        if clause:
+            return clause
+        return stripped[:max_len].rstrip(" ，,。；;：:、.…")
+
+    def _longest_complete_prefix(self, text: str, max_len: int, punctuation_pattern: str) -> str:
+        prefixes: list[str] = []
+        for match in re.finditer(punctuation_pattern, text):
+            end = match.end()
+            if end > max_len:
+                break
+            prefix = self._strip_terminal_punctuation(text[:end].strip())
+            if prefix:
+                prefixes.append(prefix)
+        return prefixes[-1] if prefixes else ""
 
     def _decision_prompt_path(self) -> str:
         return str(self.signal_prompt_path)

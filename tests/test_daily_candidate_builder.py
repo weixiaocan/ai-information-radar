@@ -253,6 +253,22 @@ class DailyCandidateBuilderTest(unittest.TestCase):
         self.assertEqual(candidate["degraded_stage"], "builder_copy")
         self.assertEqual(payload["degraded_stage"], "builder_copy")
 
+    def test_builder_text_limit_prefers_complete_sentence_without_ellipsis(self) -> None:
+        builder = DailyCandidateBuilder(Mock(), Path("prompts/theme_signal_extractor.md"))
+        text = (
+            "在旧金山，许多人自称在利用AI子代理进行tokenmaxxing，"
+            "但当被问及具体构建什么和为谁构建时，很少有人能给出明确答案。"
+            "这表明即使在AI时代，简单性和方向性仍然至关重要。在缺少明确目标时，工具使用量并不等于进展。"
+        )
+
+        shortened = builder._truncate_text(text, 90)
+
+        self.assertEqual(
+            shortened,
+            "在旧金山，许多人自称在利用AI子代理进行tokenmaxxing，但当被问及具体构建什么和为谁构建时，很少有人能给出明确答案。这表明即使在AI时代，简单性和方向性仍然至关重要",
+        )
+        self.assertNotIn("…", shortened)
+
 
 if __name__ == "__main__":
     unittest.main()
