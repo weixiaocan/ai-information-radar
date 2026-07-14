@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from typing import Any
 
 from src.models.content_item import ContentItem
@@ -129,6 +130,25 @@ class DailyCurator:
                 payload = self.client.daily_selections(str(self.copy_prompt_path or self.prompt_path), candidate_items, exclude_ids)
         except Exception:
             return {}
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            issues = self._collect_copy_issues(payload, selected_indexes)
+            if not issues:
+                break
+            if attempt == max_attempts:
+                break
+            try:
+                payload = self.client.daily_selection_copy(
+                    str(self.copy_prompt_path or self.prompt_path),
+                    candidate_items,
+                    selected_indexes,
+                    exclude_ids,
+                    feedback=issues,
+                )
+                if not isinstance(payload, dict):
+                    payload = self.client.daily_selections(str(self.copy_prompt_path or self.prompt_path), candidate_items, exclude_ids)
+            except Exception:
+                break
         return payload or {}
 
     def _copy_by_candidate_index(self, payload: dict[str, Any]) -> dict[int, dict[str, Any]]:
@@ -140,11 +160,32 @@ class DailyCurator:
             result[candidate_index] = selection
         return result
 
+    def _collect_copy_issues(self, payload: dict[str, Any] | None, selected_indexes: list[int]) -> list[str]:
+        issues: list[str] = []
+        copy_by_index = self._copy_by_candidate_index(payload or {})
+        for candidate_index in selected_indexes[:5]:
+            copy = copy_by_index.get(candidate_index, {})
+            value_pitch = str(copy.get("value_pitch", "")).strip()
+            if not value_pitch:
+                issues.append(f"Selection {candidate_index} missing `value_pitch`.")
+                continue
+            if self._looks_mostly_english(value_pitch):
+                issues.append(f"Selection {candidate_index} `value_pitch` must be rewritten into natural Chinese.")
+            if self._looks_truncated(value_pitch):
+                issues.append(f"Selection {candidate_index} `value_pitch` is truncated; rewrite it as a complete sentence.")
+        diversity = str((payload or {}).get("selection_diversity", "")).strip()
+        if diversity and self._looks_mostly_english(diversity):
+            issues.append("`selection_diversity` must be written in Chinese.")
+        return issues
+
     def _fallback_value_pitch(self, item: ContentItem) -> str:
         source = get_original_source_name(item)
         summary = str(item.ai_summary or item.body[:160]).strip()
-        if not summary:
-            return self._normalize_value_pitch(item.title.strip())
+        if not summary or self._looks_mostly_english(summary):
+            title = item.title.strip()
+            if title and not self._looks_mostly_english(title):
+                return self._normalize_value_pitch(f"{source} 这条内容关注《{title}》，可作为今日精选参考")
+            return self._normalize_value_pitch(f"{source} 这条内容可作为今日精选参考")
         return self._normalize_value_pitch(f"{source} 这条内容主要讲的是 {summary}")
 
     def _coerce_candidate_index(self, value: Any) -> int | None:
@@ -157,3 +198,14 @@ class DailyCurator:
         if len(text) <= max_len:
             return text
         return text[:max_len].rstrip(" ，,。；;：:、.…")
+
+    def _looks_mostly_english(self, text: str) -> bool:
+        letters = re.findall(r"[A-Za-z]", text)
+        cjk = re.findall(r"[\u4e00-\u9fff]", text)
+        return len(letters) >= 12 and len(letters) > len(cjk)
+
+    def _looks_truncated(self, text: str) -> bool:
+        normalized = text.strip()
+        if not normalized:
+            return False
+        return normalized.endswith(("...", "…", "/", "-", ":", "："))
