@@ -77,7 +77,7 @@ class DailyDigestBuilderTest(unittest.TestCase):
         self.assertIn("1 条", spotlight_header)
         self.assertIn("[**Aaron Levie**](https://x.com/levie/status/1)", spotlight_line)
 
-    def test_daily_digest_hides_evidence_that_repeats_theme_summary(self) -> None:
+    def test_daily_digest_hides_weekly_style_theme_summary_and_keeps_source_facts(self) -> None:
         payload = DailyDigestBuilder().build(
             themes_data={
                 "themes": [
@@ -103,7 +103,8 @@ class DailyDigestBuilderTest(unittest.TestCase):
             stats={"total": 2},
         )
         theme_text = payload["card"]["elements"][1]["text"]["content"]
-        self.assertNotIn("https://x.com/1", theme_text)
+        self.assertNotIn("Aaron Levie says AI is moving from cheap chat to expensive agents.", theme_text)
+        self.assertIn("https://x.com/1", theme_text)
         self.assertIn("https://x.com/2", theme_text)
 
     def test_fallback_display_name_title_cases_source_name(self) -> None:
