@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from datetime import datetime
 from typing import Any
 
 from src.utils.daily_state import (
@@ -24,6 +25,7 @@ class StateManager:
         self.transcript_failures_path = state_dir / "transcript_failures.jsonl"
         self.invariant_warnings_path = state_dir / "invariant_warnings.jsonl"
         self.source_status_path = state_dir / "latest_source_status.json"
+        self.source_health_history_path = state_dir / "source_health.jsonl"
         self.themes_dir = state_dir / "themes"
         self.selections_dir = state_dir / "selections"
         self.candidates_dir = state_dir / "candidates"
@@ -95,6 +97,33 @@ class StateManager:
         if not self.source_status_path.exists():
             return {}
         return json.loads(self.source_status_path.read_text(encoding="utf-8"))
+
+    def append_source_health_snapshot(self, payload: dict[str, Any]) -> None:
+        entry = {"timestamp": utc_now().isoformat(), **payload}
+        with self.source_health_history_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+    def load_source_health_snapshots_since(self, since: datetime) -> list[dict[str, Any]]:
+        return self._load_jsonl_since(self.source_health_history_path, since)
+
+    def load_heartbeats_since(self, since: datetime) -> list[dict[str, Any]]:
+        return self._load_jsonl_since(self.heartbeat_path, since)
+
+    def _load_jsonl_since(self, path: Path, since: datetime) -> list[dict[str, Any]]:
+        if not path.exists():
+            return []
+        entries: list[dict[str, Any]] = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+                timestamp = datetime.fromisoformat(str(entry.get("timestamp", "")))
+            except (ValueError, TypeError, json.JSONDecodeError):
+                continue
+            if timestamp >= since:
+                entries.append(entry)
+        return entries
 
     def save_stage_content_ids(self, stage: str, content_ids: list[str]) -> None:
         path = self.stage_batches[stage]

@@ -82,6 +82,13 @@ D:\anaconda\envs\ai-radar\python.exe main.py --task tier2
 D:\anaconda\envs\ai-radar\python.exe main.py --task weekly --deliver
 ```
 
+## 运行健康记录
+
+- 每次 `ingest` 会把逐源状态追加到 `state/source_health.jsonl`，不会只保留最后一次结果。
+- 状态区分 `success`、`no_new_items`、`degraded`、`failed`、`feed_failed`、`timed_out` 等情况。
+- 每周一的 `weekly --deliver` 会在内容周报之后，再单独发送一张飞书系统健康周报。
+- 健康周报检查过去一周的 ingest、daily-curate、daily 是否按天完成，并列出异常或降级来源、发生次数和最近错误。
+
 ## 输出示例
 
 <p align="center">

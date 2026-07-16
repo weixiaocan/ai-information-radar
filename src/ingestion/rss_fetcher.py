@@ -47,7 +47,7 @@ class RSSFetcher:
                 parsed = self._fetch_feed(source)
             except Exception as exc:
                 LOGGER.warning("Failed to fetch RSS source %s: %s", source.get("name"), exc)
-                self.source_statuses[source.get("name", source.get("url", "unknown"))] = {
+                self.source_statuses[f"rss:{source.get('name', source.get('url', 'unknown'))}"] = {
                     "status": "feed_failed",
                     "items_fetched": 0,
                     "article_fallbacks": 0,
@@ -69,7 +69,7 @@ class RSSFetcher:
                 source_items += 1
                 if item.extra_metadata.get("rss_body_source") == "feed_fallback":
                     article_fallbacks += 1
-            self.source_statuses[source.get("name", source.get("url", "unknown"))] = {
+            self.source_statuses[f"rss:{source.get('name', source.get('url', 'unknown'))}"] = {
                 "status": "success" if not article_fallbacks else "success_with_article_fallbacks",
                 "items_fetched": source_items,
                 "article_fallbacks": article_fallbacks,

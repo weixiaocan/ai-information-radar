@@ -23,6 +23,7 @@ class WebFetcher:
         self.goose = Goose()
         self.retry_attempts = 3
         self.retry_delays_seconds = (10, 30)
+        self.source_statuses: dict[str, dict[str, Any]] = {}
 
     def fetch(
         self,
@@ -38,10 +39,14 @@ class WebFetcher:
         for source in sources:
             if not source.get("enabled", True):
                 continue
+            source_key = f"web:{source.get('name', 'unknown')}"
+            before_count = len(results)
+            article_failures = 0
             try:
                 entries = self._discover_entries(source)
             except Exception as exc:
                 LOGGER.warning("Failed to discover web source %s: %s", source.get("name"), exc)
+                self.source_statuses[source_key] = {"status": "failed", "items_fetched": 0, "error": str(exc)}
                 continue
             for entry in entries:
                 content_id = f"web_{entry['url']}"
@@ -56,10 +61,17 @@ class WebFetcher:
                         source.get("name", ""),
                         exc,
                     )
+                    article_failures += 1
                     continue
                 if item.published_at < cutoff or item.published_at >= window_end:
                     continue
                 results.append(item)
+            self.source_statuses[source_key] = {
+                "status": "degraded" if article_failures else ("success" if len(results) > before_count else "no_new_items"),
+                "items_fetched": len(results) - before_count,
+                "failed_items": article_failures,
+                "error": f"{article_failures} article fetches failed" if article_failures else "",
+            }
         LOGGER.info("Fetched %s new web articles", len(results))
         return results
 

@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from src.models.content_item import ContentItem
 from src.output.daily_digest import DailyDigestBuilder
 from src.output.feishu_delivery import FeishuDelivery
+from src.output.health_report import WeeklyHealthReportBuilder, shanghai_week_window
 from src.output.top_video_report import TopVideoReportWriter
 from src.output.weekly_digest import WeeklyDigestBuilder
 from src.publishing.site_publisher import SitePublisher
@@ -102,6 +103,7 @@ class Pipeline:
         from src.ingestion.youtube_fetcher import YouTubeFetcher
         from src.ingestion.zara_fetcher import ZaraFetcher
 
+        self._latest_source_statuses: dict[str, dict[str, Any]] = {}
         seen_ids = self.state_manager.load_seen_ids()
         effective_seen_ids = set() if ignore_seen else seen_ids
         window_end = datetime.now(timezone.utc)
@@ -165,10 +167,16 @@ class Pipeline:
             window_start,
             window_end,
         )
-        self.state_manager.save_latest_source_statuses(
+        source_statuses = {
+            **self._latest_source_statuses,
+            "zara:zara_x": self._summarize_zara_source_status("zara_x"),
+        }
+        self.state_manager.save_latest_source_statuses(source_statuses)
+        self.state_manager.append_source_health_snapshot(
             {
-                **getattr(self, "_latest_rss_source_statuses", {}),
-                "zara_x": self._summarize_zara_source_status("zara_x"),
+                "window_start": window_start.isoformat(),
+                "window_end": window_end.isoformat(),
+                "sources": source_statuses,
             }
         )
         items = youtube_items + playlist_items + rss_items + web_items + newsletter_items + zara_items
@@ -710,6 +718,39 @@ class Pipeline:
         exported_ebook_reports = self._copy_weekly_ebook_reports(ebook_report_paths)
         if deliver:
             self.feishu.send(payload)
+            try:
+                health_window_start, health_window_end = shanghai_week_window(weekly_end_date)
+                health_snapshots = [
+                    entry
+                    for entry in self.state_manager.load_source_health_snapshots_since(health_window_start)
+                    if datetime.fromisoformat(str(entry.get("timestamp", ""))) < health_window_end
+                ]
+                health_heartbeats = [
+                    entry
+                    for entry in self.state_manager.load_heartbeats_since(health_window_start)
+                    if datetime.fromisoformat(str(entry.get("timestamp", ""))) < health_window_end
+                ]
+                health_payload = WeeklyHealthReportBuilder().build(
+                    health_snapshots,
+                    health_heartbeats,
+                    week_start=weekly_end_date - timedelta(days=6),
+                    week_end=weekly_end_date,
+                )
+                self.feishu.send(health_payload)
+                self.state_manager.write_heartbeat(
+                    "weekly_health",
+                    {"snapshots": len(health_snapshots), "window_end": weekly_end_date.isoformat()},
+                )
+            except Exception as exc:
+                self._append_ops_event(
+                    {
+                        "severity": "error",
+                        "task": "weekly_health",
+                        "event": "weekly_health_delivery_failed",
+                        "error": str(exc),
+                    }
+                )
+                self.state_manager.write_heartbeat("weekly_health_error", {"error": str(exc)})
         target_label = report_path.stem if report_path else "latest"
         self._publish_site_report("weekly", report_path, target_label)
         self.state_manager.write_heartbeat(
@@ -826,12 +867,18 @@ class Pipeline:
         start_at: datetime | None = None,
         end_at: datetime | None = None,
     ) -> list[ContentItem]:
+        if not hasattr(self, "_latest_source_statuses"):
+            self._latest_source_statuses = {}
         try:
-            return fetcher_cls(
+            fetcher = fetcher_cls(
                 self.settings.youtube_api_key,
                 self.settings.request_timeout_seconds,
-            ).fetch(channels, seen_ids, recent_days=recent_days, start_at=start_at, end_at=end_at)
+            )
+            items = fetcher.fetch(channels, seen_ids, recent_days=recent_days, start_at=start_at, end_at=end_at)
+            self._merge_source_statuses(getattr(fetcher, "source_statuses", {}))
+            return items
         except Exception as exc:
+            self._latest_source_statuses["youtube:all"] = {"status": "failed", "items_fetched": 0, "error": str(exc)}
             self.state_manager.write_heartbeat("ingest_warning", {"source": "youtube", "error": str(exc)})
             return []
 
@@ -844,12 +891,18 @@ class Pipeline:
         start_at: datetime | None = None,
         end_at: datetime | None = None,
     ) -> list[ContentItem]:
+        if not hasattr(self, "_latest_source_statuses"):
+            self._latest_source_statuses = {}
         try:
-            return fetcher_cls(
+            fetcher = fetcher_cls(
                 self.settings.youtube_api_key,
                 self.settings.request_timeout_seconds,
-            ).fetch_playlists(playlists, seen_ids, recent_days=recent_days, start_at=start_at, end_at=end_at)
+            )
+            items = fetcher.fetch_playlists(playlists, seen_ids, recent_days=recent_days, start_at=start_at, end_at=end_at)
+            self._merge_source_statuses(getattr(fetcher, "source_statuses", {}))
+            return items
         except Exception as exc:
+            self._latest_source_statuses["youtube_playlist:all"] = {"status": "failed", "items_fetched": 0, "error": str(exc)}
             self.state_manager.write_heartbeat("ingest_warning", {"source": "youtube_playlists", "error": str(exc)})
             return []
 
@@ -862,6 +915,8 @@ class Pipeline:
         start_at: datetime | None = None,
         end_at: datetime | None = None,
     ) -> list[ContentItem]:
+        if not hasattr(self, "_latest_source_statuses"):
+            self._latest_source_statuses = {}
         try:
             fetcher = fetcher_cls(self.settings.request_timeout_seconds)
             items = fetcher.fetch(
@@ -872,9 +927,10 @@ class Pipeline:
                 end_at=end_at,
             )
             source_statuses = getattr(fetcher, "source_statuses", {})
-            self._latest_rss_source_statuses = source_statuses if isinstance(source_statuses, dict) else {}
+            self._merge_source_statuses(source_statuses)
             return items
         except Exception as exc:
+            self._latest_source_statuses["rss:all"] = {"status": "failed", "items_fetched": 0, "error": str(exc)}
             self.state_manager.write_heartbeat("ingest_warning", {"source": "rss", "error": str(exc)})
             return []
 
@@ -887,15 +943,21 @@ class Pipeline:
         start_at: datetime | None = None,
         end_at: datetime | None = None,
     ) -> list[ContentItem]:
+        if not hasattr(self, "_latest_source_statuses"):
+            self._latest_source_statuses = {}
         try:
-            return fetcher_cls(self.settings.request_timeout_seconds).fetch(
+            fetcher = fetcher_cls(self.settings.request_timeout_seconds)
+            items = fetcher.fetch(
                 web_sources,
                 seen_ids,
                 recent_days,
                 start_at=start_at,
                 end_at=end_at,
             )
+            self._merge_source_statuses(getattr(fetcher, "source_statuses", {}))
+            return items
         except Exception as exc:
+            self._latest_source_statuses["web:all"] = {"status": "failed", "items_fetched": 0, "error": str(exc)}
             self.state_manager.write_heartbeat("ingest_warning", {"source": "web", "error": str(exc)})
             return []
 
@@ -908,21 +970,34 @@ class Pipeline:
         start_at: datetime | None = None,
         end_at: datetime | None = None,
     ) -> list[ContentItem]:
+        if not hasattr(self, "_latest_source_statuses"):
+            self._latest_source_statuses = {}
         try:
-            return fetcher_cls(
+            fetcher = fetcher_cls(
                 self.settings.gmail_credentials_path,
                 self.settings.gmail_token_path,
                 self.settings.request_timeout_seconds,
-            ).fetch(
+            )
+            items = fetcher.fetch(
                 newsletter_sources,
                 seen_ids,
                 recent_days,
                 start_at=start_at,
                 end_at=end_at,
             )
+            self._merge_source_statuses(getattr(fetcher, "source_statuses", {}))
+            return items
         except Exception as exc:
+            self._latest_source_statuses["newsletter:all"] = {"status": "failed", "items_fetched": 0, "error": str(exc)}
             self.state_manager.write_heartbeat("ingest_warning", {"source": "newsletter_email", "error": str(exc)})
             return []
+
+    def _merge_source_statuses(self, statuses: Any) -> None:
+        if not isinstance(statuses, dict):
+            return
+        for source, metadata in statuses.items():
+            if isinstance(metadata, dict):
+                self._latest_source_statuses[str(source)] = metadata
 
     def _safe_fetch_zara(
         self,

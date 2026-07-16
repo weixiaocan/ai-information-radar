@@ -28,6 +28,7 @@ class YouTubeFetcher:
         self.retry_attempts = 3
         self.retry_delays_seconds = (10, 30)
         self._runtime_diagnostics_logged = False
+        self.source_statuses: dict[str, dict[str, Any]] = {}
 
     def fetch(
         self,
@@ -39,6 +40,8 @@ class YouTubeFetcher:
         max_results_per_channel: int = 20,
         min_duration_minutes: int = 25,
     ) -> list[ContentItem]:
+        if not hasattr(self, "source_statuses"):
+            self.source_statuses = {}
         self._log_runtime_diagnostics()
         results: list[ContentItem] = []
         cutoff = start_at or utc_days_ago(recent_days)
@@ -46,6 +49,8 @@ class YouTubeFetcher:
         for channel in channels:
             if not channel.get("enabled", True):
                 continue
+            source_key = f"youtube:{channel.get('name', channel.get('handle', 'unknown'))}"
+            before_count = len(results)
             try:
                 channel_id = str(channel.get("channel_id", "")).strip() or self._resolve_channel_id(channel["handle"])
                 videos = self._fetch_latest_videos(channel_id, max_results_per_channel)
@@ -87,6 +92,11 @@ class YouTubeFetcher:
                             },
                         )
                     )
+                self.source_statuses[source_key] = {
+                    "status": "success" if len(results) > before_count else "no_new_items",
+                    "items_fetched": len(results) - before_count,
+                    "error": "",
+                }
             except Exception as exc:
                 LOGGER.warning(
                     "Failed to fetch YouTube channel %s (%s): %s",
@@ -94,6 +104,7 @@ class YouTubeFetcher:
                     channel.get("handle", ""),
                     exc,
                 )
+                self.source_statuses[source_key] = {"status": "failed", "items_fetched": 0, "error": str(exc)}
                 continue
         LOGGER.info("Fetched %s new YouTube metadata items", len(results))
         return results
@@ -108,6 +119,8 @@ class YouTubeFetcher:
         max_results_per_playlist: int = 20,
         min_duration_minutes: int = 25,
     ) -> list[ContentItem]:
+        if not hasattr(self, "source_statuses"):
+            self.source_statuses = {}
         self._log_runtime_diagnostics()
         results: list[ContentItem] = []
         cutoff = start_at or utc_days_ago(recent_days)
@@ -115,6 +128,8 @@ class YouTubeFetcher:
         for playlist in playlists:
             if not playlist.get("enabled", True):
                 continue
+            source_key = f"youtube_playlist:{playlist.get('name', playlist.get('playlist_id', 'unknown'))}"
+            before_count = len(results)
             try:
                 videos = self._fetch_playlist_videos(playlist["playlist_id"], max_results_per_playlist)
                 for video in videos:
@@ -156,6 +171,11 @@ class YouTubeFetcher:
                             },
                         )
                     )
+                self.source_statuses[source_key] = {
+                    "status": "success" if len(results) > before_count else "no_new_items",
+                    "items_fetched": len(results) - before_count,
+                    "error": "",
+                }
             except Exception as exc:
                 LOGGER.warning(
                     "Failed to fetch YouTube playlist %s (%s): %s",
@@ -163,6 +183,7 @@ class YouTubeFetcher:
                     playlist.get("playlist_id", ""),
                     exc,
                 )
+                self.source_statuses[source_key] = {"status": "failed", "items_fetched": 0, "error": str(exc)}
                 continue
         LOGGER.info("Fetched %s new YouTube playlist metadata items", len(results))
         return results

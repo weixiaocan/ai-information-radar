@@ -30,6 +30,7 @@ class GmailNewsletterFetcher:
         self.token_path = token_path
         self.timeout_seconds = timeout_seconds
         self.service = service
+        self.source_statuses: dict[str, dict[str, Any]] = {}
 
     def fetch(
         self,
@@ -48,11 +49,15 @@ class GmailNewsletterFetcher:
         window_end = end_at or utc_now()
         results: list[ContentItem] = []
         for source in enabled_sources:
+            source_key = f"newsletter:{source.get('name', 'unknown')}"
+            before_count = len(results)
+            message_failures = 0
             query = self._build_query(source, cutoff, window_end)
             try:
                 message_ids = self._list_message_ids(service, query)
             except Exception as exc:
                 LOGGER.warning("Failed to search Gmail newsletter source %s: %s", source.get("name"), exc)
+                self.source_statuses[source_key] = {"status": "failed", "items_fetched": 0, "error": str(exc)}
                 continue
             for message_id in message_ids:
                 content_id = f"newsletter_email_{message_id}"
@@ -63,12 +68,19 @@ class GmailNewsletterFetcher:
                     item = self._to_content_item(source, message, content_id)
                 except Exception as exc:
                     LOGGER.warning("Failed to read Gmail newsletter message %s: %s", message_id, exc)
+                    message_failures += 1
                     continue
                 if self._is_low_signal_newsletter(item):
                     continue
                 if item.published_at < cutoff or item.published_at >= window_end:
                     continue
                 results.append(item)
+            self.source_statuses[source_key] = {
+                "status": "degraded" if message_failures else ("success" if len(results) > before_count else "no_new_items"),
+                "items_fetched": len(results) - before_count,
+                "failed_items": message_failures,
+                "error": f"{message_failures} messages failed" if message_failures else "",
+            }
         LOGGER.info("Fetched %s new Gmail newsletter items", len(results))
         return results
 
