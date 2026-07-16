@@ -41,14 +41,19 @@
 - Weekly themes may summarize any normalized weekly content, including Zara X signals, RSS, web, and YouTube.
 - Weekly Top 2 recommendations must come only from YouTube items that completed Tier 2 scoring.
 
-## Non-Goals
+## Operations Health
 
-- No database.
-- No frontend UI.
-- No cloud deployment.
-- No multi-provider LLM abstraction beyond a single provider-ready client surface.
-- No Feishu feedback loop in V1.
-- No weekly report built by concatenating daily reports.
+- Every ingest run must append a per-source health snapshot to `state/source_health.jsonl`; do not rely only on `state/latest_source_status.json`.
+- Source health must distinguish successful fetches, successful runs with no new items, degraded fallbacks, failures, feed failures, and timeouts.
+- `no_new_items` is a healthy run and must not be reported as a source failure.
+- The scheduled Monday weekly task must send a separate Feishu system health card after the content weekly digest.
+- The system health card is Feishu-only. Do not write it into weekly content reports or publish it to the public site.
+- Weekly task completion counts must use distinct Asia/Shanghai calendar days; repeated or manual runs on the same day count only once.
+- Do not report the system as healthy unless both task history and per-source health history cover the full reporting week.
+- The weekly health card must use clear Chinese descriptions, list missing task days, and show each degraded or failed source with occurrence count and latest error.
+- A health-card delivery failure must be recorded in heartbeat and `state/ops_events.jsonl` without blocking the content weekly report or site publication.
+
+
 
 ## Workflow
 
