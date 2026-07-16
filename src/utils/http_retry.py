@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
+from email.utils import parsedate_to_datetime
+from datetime import datetime, timezone
 from typing import TypeVar
 
 import requests
@@ -29,7 +31,7 @@ def run_with_retries(
             last_error = exc
             if attempt >= max_attempts or not is_retryable_request_exception(exc):
                 raise
-            delay = retry_delay(retry_delays_seconds, attempt)
+            delay = retry_delay(retry_delays_seconds, attempt, exc)
             active_logger.warning(
                 "%s failed on attempt %s/%s: %s; retrying in %ss",
                 description,
@@ -52,6 +54,18 @@ def is_retryable_request_exception(exc: Exception) -> bool:
     return False
 
 
-def retry_delay(retry_delays_seconds: tuple[int, ...], attempt: int) -> int:
+def retry_delay(retry_delays_seconds: tuple[int, ...], attempt: int, exc: Exception | None = None) -> int:
+    if isinstance(exc, requests.HTTPError) and exc.response is not None:
+        retry_after = str(exc.response.headers.get("Retry-After", "")).strip()
+        if retry_after.isdigit():
+            return max(0, int(retry_after))
+        if retry_after:
+            try:
+                retry_at = parsedate_to_datetime(retry_after)
+                if retry_at.tzinfo is None:
+                    retry_at = retry_at.replace(tzinfo=timezone.utc)
+                return max(0, int((retry_at - datetime.now(timezone.utc)).total_seconds()))
+            except (TypeError, ValueError, OverflowError):
+                pass
     index = min(attempt - 1, len(retry_delays_seconds) - 1)
     return int(retry_delays_seconds[index])

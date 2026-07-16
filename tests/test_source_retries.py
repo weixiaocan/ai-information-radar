@@ -13,6 +13,7 @@ class _TextResponse:
     def __init__(self, text: str, url: str = "https://example.com/final") -> None:
         self.text = text
         self.url = url
+        self.headers = {}
 
     def raise_for_status(self) -> None:
         return None
@@ -51,6 +52,47 @@ class SourceRetryTest(unittest.TestCase):
         self.assertEqual(items, [])
         self.assertEqual(mock_get.call_count, 2)
         _sleep.assert_called_once_with(10)
+        request_headers = mock_get.call_args.kwargs["headers"]
+        self.assertEqual(request_headers["User-Agent"], RSSFetcher.USER_AGENT)
+        self.assertIn("application/rss+xml", request_headers["Accept"])
+
+    def test_rss_uses_sufficient_feed_content_without_fetching_article(self) -> None:
+        fetcher = RSSFetcher(timeout_seconds=30)
+        entry = {
+            "id": "entry-1",
+            "link": "https://example.com/article",
+            "title": "Article",
+            "summary": "<p>" + ("完整 RSS 正文内容。" * 30) + "</p>",
+            "published_parsed": (2026, 5, 17, 12, 0, 0, 0, 0, 0),
+        }
+        parsed = Mock(entries=[entry])
+
+        with (
+            patch.object(fetcher, "_fetch_feed", return_value=parsed),
+            patch.object(fetcher, "_extract_article") as extract_article,
+        ):
+            items = fetcher.fetch(
+                [{"name": "rss_source", "url": "https://example.com/rss.xml"}], set(), 7,
+                start_at=datetime(2026, 5, 16, tzinfo=timezone.utc),
+                end_at=datetime(2026, 5, 18, tzinfo=timezone.utc),
+            )
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].extra_metadata["rss_body_source"], "feed")
+        extract_article.assert_not_called()
+
+    @patch("src.utils.http_retry.time.sleep", return_value=None)
+    def test_rss_429_honors_retry_after(self, sleep: Mock) -> None:
+        fetcher = RSSFetcher(timeout_seconds=30)
+        limited = requests.Response()
+        limited.status_code = 429
+        limited.headers["Retry-After"] = "45"
+        error = requests.HTTPError("rate limited", response=limited)
+
+        with patch("src.ingestion.rss_fetcher.requests.get", side_effect=[error, _TextResponse("<rss />")]):
+            fetcher._fetch_feed({"name": "rss_source", "url": "https://example.com/rss.xml"})
+
+        sleep.assert_called_once_with(45)
 
     @patch("src.utils.http_retry.time.sleep", return_value=None)
     def test_web_fetch_retries_index_request_and_recovers(self, _sleep: Mock) -> None:

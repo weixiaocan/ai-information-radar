@@ -167,6 +167,7 @@ class Pipeline:
         )
         self.state_manager.save_latest_source_statuses(
             {
+                **getattr(self, "_latest_rss_source_statuses", {}),
                 "zara_x": self._summarize_zara_source_status("zara_x"),
             }
         )
@@ -862,13 +863,17 @@ class Pipeline:
         end_at: datetime | None = None,
     ) -> list[ContentItem]:
         try:
-            return fetcher_cls(self.settings.request_timeout_seconds).fetch(
+            fetcher = fetcher_cls(self.settings.request_timeout_seconds)
+            items = fetcher.fetch(
                 rss_sources,
                 seen_ids,
                 recent_days,
                 start_at=start_at,
                 end_at=end_at,
             )
+            source_statuses = getattr(fetcher, "source_statuses", {})
+            self._latest_rss_source_statuses = source_statuses if isinstance(source_statuses, dict) else {}
+            return items
         except Exception as exc:
             self.state_manager.write_heartbeat("ingest_warning", {"source": "rss", "error": str(exc)})
             return []
