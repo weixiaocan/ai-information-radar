@@ -657,6 +657,65 @@ class PipelineHelpersTest(unittest.TestCase):
         heartbeat_metadata = pipeline.state_manager.write_heartbeat.call_args.args[1]
         self.assertEqual(heartbeat_metadata["degraded_warnings"], 1)
 
+    def test_selection_copy_fallback_passes_quality_gate_when_complete(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        manifest = {
+            "degraded": {
+                "selections": {
+                    "degraded_reason": "selection_copy_failed",
+                    "degraded_stage": "selection_copy",
+                    "fallback_mode": "value_pitch_from_summary",
+                }
+            }
+        }
+        selections_data = {
+            "selections": [
+                {
+                    "decision": {
+                        "content_id": "rss_1",
+                        "channel_or_source": "Simon Willison",
+                        "title": "datasette 1.0a37",
+                        "url": "https://example.com/datasette",
+                    },
+                    "copy": {"value_pitch": "这条内容介绍了 Datasette 的最新版本，可作为今日精选参考"},
+                }
+            ]
+        }
+
+        quality = Pipeline._assess_daily_curate_quality(
+            pipeline,
+            manifest,
+            {"builder_hot_candidates": [], "editorial_candidates": []},
+            {"themes": [], "discussion_dispersion": "dispersed"},
+            selections_data,
+        )
+
+        self.assertEqual(quality["blocking"], {})
+        self.assertEqual(quality["warnings"]["selections"]["fallback_quality"], "passed")
+
+    def test_selection_copy_fallback_blocks_when_required_fields_are_missing(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        manifest = {
+            "degraded": {
+                "selections": {
+                    "degraded_reason": "selection_copy_failed",
+                    "degraded_stage": "selection_copy",
+                    "fallback_mode": "value_pitch_from_summary",
+                }
+            }
+        }
+
+        quality = Pipeline._assess_daily_curate_quality(
+            pipeline,
+            manifest,
+            {"builder_hot_candidates": [], "editorial_candidates": []},
+            {"themes": [], "discussion_dispersion": "dispersed"},
+            {"selections": [{"decision": {"content_id": "rss_1"}, "copy": {"value_pitch": ""}}]},
+        )
+
+        self.assertIn("selections", quality["blocking"])
+        self.assertIn("value_pitch", quality["blocking"]["selections"]["quality_issues"][0]["missing_fields"])
+
     def test_daily_delivers_when_builder_backfill_rewrite_passes_quality_gate(self) -> None:
         pipeline = Pipeline.__new__(Pipeline)
         manifest = {

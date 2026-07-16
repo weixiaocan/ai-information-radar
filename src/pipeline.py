@@ -426,6 +426,13 @@ class Pipeline:
         for section, metadata in degraded.items():
             fallback_mode = str(metadata.get("fallback_mode", "")).strip()
             degraded_stage = str(metadata.get("degraded_stage", "")).strip()
+            if section == "selections" and degraded_stage == "selection_copy" and fallback_mode == "value_pitch_from_summary":
+                issues = self._selection_copy_fallback_issues(selections_data)
+                if issues:
+                    blocking[section] = {**metadata, "quality_issues": issues}
+                else:
+                    warnings[section] = {**metadata, "fallback_quality": "passed"}
+                continue
             if section == "candidates" and (
                 (degraded_stage == "builder_copy" and fallback_mode == "per_item_copy_fallback")
                 or (degraded_stage == "builder_decision" and fallback_mode in {"backfill_llm_rewrite", "backfill_low_confidence_llm_rewrite"})
@@ -447,6 +454,27 @@ class Pipeline:
                 },
             )
         return {"blocking": blocking, "warnings": warnings}
+
+    def _selection_copy_fallback_issues(self, selections_data: dict[str, Any]) -> list[dict[str, Any]]:
+        issues: list[dict[str, Any]] = []
+        for selection in selections_data.get("selections", []):
+            decision = selection.get("decision", {}) if isinstance(selection, dict) else {}
+            copy = selection.get("copy", {}) if isinstance(selection, dict) else {}
+            content_id = str(decision.get("content_id", "")).strip()
+            missing_fields = [
+                field
+                for field, value in {
+                    "content_id": content_id,
+                    "channel_or_source": decision.get("channel_or_source"),
+                    "title": decision.get("title"),
+                    "url": decision.get("url"),
+                    "value_pitch": copy.get("value_pitch"),
+                }.items()
+                if not str(value or "").strip()
+            ]
+            if missing_fields:
+                issues.append({"content_id": content_id, "missing_fields": missing_fields})
+        return issues
 
     def _daily_curate_degraded_summary(self, manifest: dict[str, Any]) -> dict[str, dict[str, str]]:
         degraded = manifest.get("degraded", {})
