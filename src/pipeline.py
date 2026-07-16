@@ -433,6 +433,16 @@ class Pipeline:
                 else:
                     warnings[section] = {**metadata, "fallback_quality": "passed"}
                 continue
+            if section == "selections" and degraded_stage == "selection_copy" and fallback_mode == "dropped_invalid_selection_copy":
+                issues = self._selection_copy_fallback_issues(selections_data)
+                if issues or not selections_data.get("selections"):
+                    blocking[section] = {
+                        **metadata,
+                        "quality_issues": issues or [{"reason": "all_selected_copy_was_invalid"}],
+                    }
+                else:
+                    warnings[section] = {**metadata, "fallback_quality": "invalid_items_dropped"}
+                continue
             if section == "candidates" and (
                 (degraded_stage == "builder_copy" and fallback_mode == "per_item_copy_fallback")
                 or (degraded_stage == "builder_decision" and fallback_mode in {"backfill_llm_rewrite", "backfill_low_confidence_llm_rewrite"})

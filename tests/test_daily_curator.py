@@ -9,7 +9,7 @@ from src.utils.daily_state import selection_copy, selection_decision
 
 
 class DailyCuratorTest(unittest.TestCase):
-    def test_selection_is_preserved_when_copy_generation_fails(self) -> None:
+    def test_selection_is_dropped_when_copy_generation_fails(self) -> None:
         client = Mock()
         client.daily_selection_decisions.return_value = {
             "selections": [{"candidate_index": 1}],
@@ -37,10 +37,39 @@ class DailyCuratorTest(unittest.TestCase):
 
         payload = curator.curate_daily(candidate_items, set())
 
-        self.assertEqual(selection_decision(payload["selections"][0])["content_id"], "rss_1")
-        self.assertTrue(selection_copy(payload["selections"][0])["value_pitch"])
-        self.assertEqual(payload["selections"][0]["degraded_stage"], "selection_copy")
+        self.assertEqual(payload["selections"], [])
         self.assertEqual(payload["degraded_stage"], "selection_copy")
+        self.assertEqual(payload["fallback_mode"], "dropped_invalid_selection_copy")
+
+    def test_only_invalid_selection_copy_is_dropped(self) -> None:
+        client = Mock()
+        client.daily_selection_decisions.return_value = {
+            "selections": [{"candidate_index": 1}, {"candidate_index": 2}],
+        }
+        client.daily_selection_copy.return_value = {
+            "selections": [
+                {"candidate_index": 1, "value_pitch": "第一条是完整、具体且可直接展示的中文推荐语。"},
+                {"candidate_index": 2, "value_pitch": ""},
+            ],
+            "selection_diversity": "覆盖不同方向。",
+        }
+        curator = DailyCurator(client, Path("prompts/selection_decision.md"), Path("prompts/selection_copy.md"))
+        items = [
+            ContentItem(
+                content_id=f"rss_{index}", source_type="rss", source_name="source", title=f"标题 {index}",
+                url=f"https://example.com/{index}", author=None,
+                published_at=datetime(2026, 5, 11, tzinfo=timezone.utc),
+                fetched_at=datetime(2026, 5, 11, 1, tzinfo=timezone.utc), body="正文", body_type="article",
+                ai_summary="完整摘要。",
+            )
+            for index in (1, 2)
+        ]
+
+        payload = curator.curate_daily(items, set())
+
+        self.assertEqual([selection_decision(item)["content_id"] for item in payload["selections"]], ["rss_1"])
+        self.assertEqual(payload["dropped_candidate_indexes"], [2])
+        self.assertEqual(payload["fallback_mode"], "dropped_invalid_selection_copy")
 
     def test_selection_copy_retries_when_value_pitch_is_english(self) -> None:
         client = Mock()
@@ -108,9 +137,9 @@ class DailyCuratorTest(unittest.TestCase):
 
         payload = curator.curate_daily(candidate_items, set())
 
-        value_pitch = selection_copy(payload["selections"][0])["value_pitch"]
-        self.assertEqual(value_pitch, "simon_willison 这条内容可作为今日精选参考")
-        self.assertNotIn("Agent harnesses help", value_pitch)
+        self.assertEqual(payload["selections"], [])
+        self.assertEqual(payload["fallback_mode"], "dropped_invalid_selection_copy")
+        self.assertNotIn("Agent harnesses help", str(payload))
 
     def test_selection_copy_preserves_complete_ai_value_pitch_without_numeric_truncation(self) -> None:
         client = Mock()

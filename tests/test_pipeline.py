@@ -716,6 +716,54 @@ class PipelineHelpersTest(unittest.TestCase):
         self.assertIn("selections", quality["blocking"])
         self.assertIn("value_pitch", quality["blocking"]["selections"]["quality_issues"][0]["missing_fields"])
 
+    def test_dropped_invalid_selection_copy_is_warning_when_valid_selections_remain(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        manifest = {
+            "degraded": {
+                "selections": {
+                    "degraded_reason": "selection_copy_failed",
+                    "degraded_stage": "selection_copy",
+                    "fallback_mode": "dropped_invalid_selection_copy",
+                }
+            }
+        }
+        selections = {
+            "selections": [{
+                "decision": {
+                    "content_id": "rss_1", "channel_or_source": "Source", "title": "Title",
+                    "url": "https://example.com/1",
+                },
+                "copy": {"value_pitch": "完整、具体、可以直接展示的中文推荐语。"},
+            }]
+        }
+
+        quality = Pipeline._assess_daily_curate_quality(
+            pipeline, manifest, {"builder_hot_candidates": [], "editorial_candidates": []},
+            {"themes": [], "discussion_dispersion": "dispersed"}, selections,
+        )
+
+        self.assertEqual(quality["blocking"], {})
+        self.assertEqual(quality["warnings"]["selections"]["fallback_quality"], "invalid_items_dropped")
+
+    def test_dropped_invalid_selection_copy_blocks_when_none_remain(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        manifest = {
+            "degraded": {
+                "selections": {
+                    "degraded_reason": "selection_copy_failed",
+                    "degraded_stage": "selection_copy",
+                    "fallback_mode": "dropped_invalid_selection_copy",
+                }
+            }
+        }
+
+        quality = Pipeline._assess_daily_curate_quality(
+            pipeline, manifest, {"builder_hot_candidates": [], "editorial_candidates": []},
+            {"themes": [], "discussion_dispersion": "dispersed"}, {"selections": []},
+        )
+
+        self.assertIn("selections", quality["blocking"])
+
     def test_daily_delivers_when_builder_backfill_rewrite_passes_quality_gate(self) -> None:
         pipeline = Pipeline.__new__(Pipeline)
         manifest = {
@@ -1092,10 +1140,10 @@ class PipelineHelpersTest(unittest.TestCase):
             "selections": [
                 {
                     "candidate_index": 1,
-                    "value_pitch": "Hollywood writers are being pulled into AI training work.",
+                    "value_pitch": "这篇报道分析了好莱坞从业者转向训练 AI 的行业变化。",
                 }
             ],
-            "selection_diversity": "diverse",
+            "selection_diversity": "覆盖行业与职业变化。",
         }
         curator = DailyCurator(client=client, prompt_path=Path("prompts/daily_curator.md"))
         candidate_items = [

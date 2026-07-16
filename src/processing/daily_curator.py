@@ -32,19 +32,14 @@ class DailyCurator:
                 fallback_mode="empty_selection",
             )
         payload = self._normalize(decision_payload, candidate_items, exclude_ids)
+        if payload.get("degraded_stage") == "selection_copy":
+            return payload
         if candidate_items and not payload["selections"]:
             return with_degraded_fields(
                 payload,
                 degraded_reason="selection_decision_failed",
                 degraded_stage="selection_decision",
                 fallback_mode="empty_selection",
-            )
-        if any(selection.get("degraded_stage") for selection in payload["selections"]):
-            return with_degraded_fields(
-                payload,
-                degraded_reason="selection_copy_failed",
-                degraded_stage="selection_copy",
-                fallback_mode="value_pitch_from_summary",
             )
         return payload
 
@@ -60,6 +55,7 @@ class DailyCurator:
         copy_payload = self._fetch_selection_copy(candidate_items, exclude_ids, selected_indexes)
         copy_by_index = self._copy_by_candidate_index(copy_payload)
         selections: list[dict[str, Any]] = []
+        dropped_candidate_indexes: list[int] = []
         seen_ids: set[str] = set()
         for candidate_index in selected_indexes[:5]:
             matched_item = candidate_by_index.get(candidate_index)
@@ -69,10 +65,9 @@ class DailyCurator:
             if content_id in exclude_ids or content_id in seen_ids:
                 continue
             value_pitch = self._normalize_value_pitch(copy_by_index.get(candidate_index, {}).get("value_pitch"))
-            used_copy_fallback = False
-            if not value_pitch:
-                value_pitch = self._fallback_value_pitch(matched_item)
-                used_copy_fallback = True
+            if not value_pitch or self._looks_mostly_english(value_pitch) or self._looks_truncated(value_pitch):
+                dropped_candidate_indexes.append(candidate_index)
+                continue
             seen_ids.add(content_id)
             selection = normalize_selection(
                 {
@@ -89,18 +84,20 @@ class DailyCurator:
                     },
                 }
             )
-            if used_copy_fallback:
-                selection = with_degraded_fields(
-                    selection,
-                    degraded_reason="selection_copy_failed",
-                    degraded_stage="selection_copy",
-                    fallback_mode="value_pitch_from_summary",
-                )
             selections.append(selection)
-        return {
+        result = {
             "selections": selections,
             "selection_diversity": self._normalize_value_pitch(copy_payload.get("selection_diversity")),
         }
+        if dropped_candidate_indexes:
+            result["dropped_candidate_indexes"] = dropped_candidate_indexes
+            return with_degraded_fields(
+                result,
+                degraded_reason="selection_copy_failed",
+                degraded_stage="selection_copy",
+                fallback_mode="dropped_invalid_selection_copy",
+            )
+        return result
 
     def _collect_selected_indexes(self, payload: dict[str, Any]) -> list[int]:
         indexes: list[int] = []
@@ -177,16 +174,6 @@ class DailyCurator:
         if diversity and self._looks_mostly_english(diversity):
             issues.append("`selection_diversity` must be written in Chinese.")
         return issues
-
-    def _fallback_value_pitch(self, item: ContentItem) -> str:
-        source = get_original_source_name(item)
-        summary = str(item.ai_summary or "").strip()
-        if not summary or self._looks_mostly_english(summary):
-            title = item.title.strip()
-            if title and not self._looks_mostly_english(title):
-                return self._normalize_value_pitch(f"{source} 这条内容关注《{title}》，可作为今日精选参考")
-            return self._normalize_value_pitch(f"{source} 这条内容可作为今日精选参考")
-        return self._normalize_value_pitch(f"{source} 这条内容主要讲的是 {summary}")
 
     def _coerce_candidate_index(self, value: Any) -> int | None:
         return value if isinstance(value, int) and value > 0 else None
