@@ -180,7 +180,7 @@ class DailyCurator:
 
     def _fallback_value_pitch(self, item: ContentItem) -> str:
         source = get_original_source_name(item)
-        summary = str(item.ai_summary or item.body[:160]).strip()
+        summary = str(item.ai_summary or "").strip()
         if not summary or self._looks_mostly_english(summary):
             title = item.title.strip()
             if title and not self._looks_mostly_english(title):
@@ -192,12 +192,7 @@ class DailyCurator:
         return value if isinstance(value, int) and value > 0 else None
 
     def _normalize_value_pitch(self, value: Any) -> str:
-        return self._truncate_text(str(value or "").strip(), 100)
-
-    def _truncate_text(self, text: str, max_len: int) -> str:
-        if len(text) <= max_len:
-            return text
-        return text[:max_len].rstrip(" ，,。；;：:、.…")
+        return str(value or "").strip()
 
     def _looks_mostly_english(self, text: str) -> bool:
         letters = re.findall(r"[A-Za-z]", text)

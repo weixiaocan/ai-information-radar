@@ -262,7 +262,7 @@ class DailyCandidateBuilder:
                     "channel_or_source": get_original_source_name(item),
                     "title": item.title,
                     "url": item.url,
-                    "summary": item.ai_summary or item.body[:240],
+                    "summary": item.ai_summary or "",
                     "keywords": item.ai_keywords,
                     "source_type": item.source_type,
                 }
@@ -576,8 +576,8 @@ class DailyCandidateBuilder:
             if self._looks_truncated(candidate):
                 continue
             if self._is_spotlight_sentence_good(candidate):
-                return self._truncate_text(candidate, 90)
-        return self._truncate_text(candidates[-1] or "", 90)
+                return candidate
+        return candidates[-1] or ""
 
     def _is_spotlight_sentence_good(self, text: str) -> bool:
         normalized = self._strip_terminal_punctuation(text.strip())
@@ -652,29 +652,6 @@ class DailyCandidateBuilder:
 
         normalized = re.sub(r"^(作者|原帖)\s*(说|认为|表示|指出)", "", normalized, count=1).strip()
         return normalized or self._strip_terminal_punctuation(text.strip())
-
-    def _truncate_text(self, text: str, max_len: int) -> str:
-        stripped = self._strip_terminal_punctuation(text.strip())
-        if len(stripped) <= max_len:
-            return stripped
-        sentence = self._longest_complete_prefix(stripped, max_len, r"[。？！!?；;]")
-        if sentence:
-            return sentence
-        clause = self._longest_complete_prefix(stripped, max_len, r"[，,、：:]")
-        if clause:
-            return clause
-        return stripped[:max_len].rstrip(" ，,。；;：:、.…")
-
-    def _longest_complete_prefix(self, text: str, max_len: int, punctuation_pattern: str) -> str:
-        prefixes: list[str] = []
-        for match in re.finditer(punctuation_pattern, text):
-            end = match.end()
-            if end > max_len:
-                break
-            prefix = self._strip_terminal_punctuation(text[:end].strip())
-            if prefix:
-                prefixes.append(prefix)
-        return prefixes[-1] if prefixes else ""
 
     def _decision_prompt_path(self) -> str:
         return str(self.signal_prompt_path)
@@ -779,7 +756,7 @@ class DailyCandidateBuilder:
             "content_id": item.content_id,
             "source": source,
             "url": item.url,
-            "topic_key": item.title[:40].strip() or "Builder 观察",
+            "topic_key": item.title.strip() or "Builder 观察",
         }
         repaired = self._repair_builder_copy(item, decision)
         return with_degraded_fields(
@@ -830,14 +807,14 @@ class DailyCandidateBuilder:
                 or str(item.extra_metadata.get("raw_entry", {}).get("content") or "")
                 or item.body
             ).strip()
-        excerpt = self._truncate_text(raw_excerpt or topic_key or "Builder 观察", 60)
+        excerpt = self._strip_terminal_punctuation(raw_excerpt or topic_key or "Builder 观察")
         spotlight_text = self._resolve_spotlight_text(
             source=source,
             spotlight_text=raw_excerpt,
             excerpt=excerpt,
             core_claim=excerpt,
         )
-        topic_label = self._truncate_text(topic_key or (item.title if item else "") or "Builder 观察", 16)
+        topic_label = self._strip_terminal_punctuation(topic_key or (item.title if item else "") or "Builder 观察")
         return {
             "content_id": item.content_id if item else "",
             "source": source,
@@ -855,7 +832,7 @@ class DailyCandidateBuilder:
         topic_key: str,
         source: str,
     ) -> dict[str, str]:
-        topic_label = self._truncate_text(topic_key or (item.title if item else "") or "Builder 瑙傚療", 16)
+        topic_label = self._strip_terminal_punctuation(topic_key or (item.title if item else "") or "Builder 瑙傚療")
         raw_excerpt = ""
         if item is not None:
             raw_excerpt = (
@@ -864,7 +841,7 @@ class DailyCandidateBuilder:
                 or item.body
             ).strip()
         if raw_excerpt and not self._looks_mostly_english(raw_excerpt) and not self._looks_truncated(raw_excerpt):
-            excerpt = self._truncate_text(raw_excerpt, 60)
+            excerpt = self._strip_terminal_punctuation(raw_excerpt)
             spotlight_text = self._resolve_spotlight_text(
                 source=source,
                 spotlight_text=raw_excerpt,
