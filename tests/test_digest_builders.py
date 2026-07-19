@@ -244,6 +244,25 @@ class DailyDigestBuilderTest(unittest.TestCase):
         self.assertIn("Supplementary note", line)
         self.assertIn("\n", line)
 
+    def test_builder_supplementary_renders_linked_source_once(self) -> None:
+        builder = DailyDigestBuilder()
+        item = {
+            "type": "builder",
+            "source_name": "Thibault Sottiaux",
+            "title": "",
+            "url": "https://x.com/thsottiaux/status/1",
+            "brief": "分享了一个具体实践",
+        }
+
+        card_line = builder._render_supplementary_line(item)
+        markdown_line = builder._render_markdown_supplementary_line(item)
+
+        expected_source = "[**Thibault Sottiaux**](https://x.com/thsottiaux/status/1)"
+        self.assertIn(expected_source, card_line)
+        self.assertIn(expected_source, markdown_line)
+        self.assertEqual(card_line.count("Thibault Sottiaux"), 1)
+        self.assertEqual(markdown_line.count("Thibault Sottiaux"), 1)
+
     def test_supplementary_candidates_can_expand_to_second_item_from_same_source(self) -> None:
         payload = DailyDigestBuilder().build(
             themes_data={
