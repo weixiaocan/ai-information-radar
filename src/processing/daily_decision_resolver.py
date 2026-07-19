@@ -49,7 +49,6 @@ class DailyDecisionResolver:
     ) -> list[dict[str, Any]]:
         themes = list(themes_payload.get("themes", []))
         spotlight_posts = list(themes_payload.get("spotlight_posts", []))
-        supplementary_spotlight_posts = list(themes_payload.get("supplementary_spotlight_posts", []))
         supplementary: list[dict[str, Any]] = []
         supplementary_limit = 10 if (not themes and spotlight_posts) else 5
 
@@ -144,27 +143,6 @@ class DailyDecisionResolver:
             )
             if len(supplementary) >= supplementary_limit:
                 return supplementary
-
-        for post in supplementary_spotlight_posts:
-            url = str(post.get("url", "")).strip()
-            source_name = str(post.get("source", "")).strip()
-            if not url or not source_name:
-                continue
-            if url in displayed_builder_urls:
-                continue
-            if any(item.get("url") == url for item in supplementary):
-                continue
-            supplementary.append(
-                {
-                    "type": "builder",
-                    "source_name": source_name,
-                    "title": "",
-                    "url": url,
-                    "brief": self._strip_terminal_punctuation(str(post.get("text", "")).strip()),
-                }
-            )
-            if len(supplementary) >= supplementary_limit:
-                break
 
         return supplementary
 

@@ -7,6 +7,23 @@ class DailyDecisionResolverTest(unittest.TestCase):
     def setUp(self) -> None:
         self.resolver = DailyDecisionResolver()
 
+    def test_resolver_does_not_reconsume_supplementary_spotlight_posts(self) -> None:
+        _, themes, _ = self.resolver.resolve(
+            candidates_data={"editorial_top10": [], "builder_hot_candidates": []},
+            themes_data={
+                "themes": [],
+                "spotlight_posts": [
+                    {"source": "Shown", "url": "https://x.com/shown", "text": "Shown post"}
+                ],
+                "supplementary_spotlight_posts": [
+                    {"source": "Legacy", "url": "https://x.com/legacy", "text": "Legacy post"}
+                ],
+            },
+            selections_data={"selections": []},
+        )
+
+        self.assertEqual(themes["supplementary_items"], [])
+
     def test_resolver_excludes_theme_members_and_selections_from_supplementary(self) -> None:
         candidates, themes, selections = self.resolver.resolve(
             candidates_data={

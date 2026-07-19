@@ -300,7 +300,6 @@ class ThemeAggregator:
             "themes": themes,
             "discussion_dispersion": dispersion,
             "spotlight_posts": [],
-            "supplementary_spotlight_posts": [],
         }
 
     def _build_theme_from_decision(
@@ -437,7 +436,6 @@ class ThemeAggregator:
             "themes": [],
             "discussion_dispersion": "dispersed",
             "spotlight_posts": ranked_posts[:5],
-            "supplementary_spotlight_posts": ranked_posts[5:10],
         }
 
     def _flatten_builder_signal(self, signal: dict[str, Any]) -> dict[str, str]:
