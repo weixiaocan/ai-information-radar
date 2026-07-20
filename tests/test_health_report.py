@@ -70,8 +70,59 @@ class WeeklyHealthReportBuilderTest(unittest.TestCase):
         )
 
         content = payload["card"]["elements"][0]["text"]["content"]
-        self.assertIn("新闻抓取：完成 1 天，缺少 6 天", content)
+        self.assertIn("新闻抓取：完成 1 天；缺少", content)
         self.assertNotIn("5/7", content)
+
+    def test_daily_completion_uses_report_target_day_for_late_recovery(self) -> None:
+        heartbeats = []
+        for offset in range(7):
+            target = date(2026, 7, 13) + timedelta(days=offset)
+            run_time = datetime(2026, 7, 14, tzinfo=timezone.utc) + timedelta(days=offset)
+            if target == date(2026, 7, 14):
+                run_time += timedelta(days=1)
+            heartbeats.append({
+                "task": "site_publish",
+                "timestamp": run_time.isoformat(),
+                "metadata": {"report_type": "daily", "target": target.isoformat()},
+            })
+
+        payload = WeeklyHealthReportBuilder().build(
+            [], heartbeats, week_start=date(2026, 7, 13), week_end=date(2026, 7, 19)
+        )
+        content = payload["card"]["elements"][0]["text"]["content"]
+        self.assertIn("日报生成与推送：7 天均完成", content)
+
+    def test_same_network_error_is_grouped_and_recovery_is_actionable(self) -> None:
+        error = "('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))"
+        snapshots = [
+            {
+                "timestamp": "2026-07-16T23:00:00+00:00",
+                "sources": {
+                    "rss:verge_ai": {"status": "feed_failed", "error": error},
+                    "youtube:latent_space": {"status": "failed", "error": error},
+                    "zara:zara_x": {"status": "failed", "error": error},
+                },
+            },
+            {
+                "timestamp": "2026-07-17T23:00:00+00:00",
+                "sources": {
+                    "rss:verge_ai": {"status": "success", "error": ""},
+                    "youtube:latent_space": {"status": "no_new_items", "error": ""},
+                    "zara:zara_x": {"status": "success", "error": ""},
+                },
+            },
+        ]
+
+        payload = WeeklyHealthReportBuilder().build(
+            snapshots, [], week_start=date(2026, 7, 13), week_end=date(2026, 7, 19)
+        )
+        content = "\n".join(
+            element.get("text", {}).get("content", "") for element in payload["card"]["elements"]
+        )
+        self.assertIn("3 个来源同时断连", content)
+        self.assertIn("不是 3 个来源分别故障", content)
+        self.assertIn("后续抓取已恢复", content)
+        self.assertNotIn("RemoteDisconnected", content)
 
 
 if __name__ == "__main__":
