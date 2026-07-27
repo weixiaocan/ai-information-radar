@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import date, timedelta
 from typing import Any
 
@@ -198,7 +199,7 @@ class WeeklyDigestBuilder:
             content_lines.append(summary)
             content_lines.append("")
         for highlight in theme.get("highlights", [])[:4]:
-            content_lines.append(self._render_theme_highlight_line(highlight))
+            content_lines.append(self._render_theme_highlight_line(highlight, for_card=True))
         return "\n".join(content_lines)
 
     def _render_markdown_theme_block(self, theme: dict[str, Any]) -> list[str]:
@@ -211,19 +212,24 @@ class WeeklyDigestBuilder:
             content_lines.append(self._render_theme_highlight_line(highlight))
         return content_lines
 
-    def _render_theme_highlight_line(self, highlight: dict[str, Any]) -> str:
-        title = str(highlight.get("title", "")).strip()
+    def _render_theme_highlight_line(self, highlight: dict[str, Any], *, for_card: bool = False) -> str:
+        title = self._single_line_title(highlight.get("title", ""))
         url = str(highlight.get("url", "")).strip()
         source_name = str(highlight.get("source_name", "")).strip()
         source_type = self._resolve_highlight_type(str(highlight.get("type", "")).strip().lower(), url)
         emoji = self._highlight_icon(source_type)
         display_name = self._get_display_name(source_name) if source_name else self._fallback_display_name("unknown")
         title = self._strip_duplicate_source_prefix(title, display_name)
+        prefix = f"{emoji} **{display_name}** ·" if for_card else f"> {emoji} `{display_name}` ·"
         if title and url:
-            return f"> {emoji} `{display_name}` · [{title}]({url})"
+            return f"{prefix} [{title}]({url})"
         if title:
-            return f"> {emoji} `{display_name}` · {title}"
-        return f"> {emoji} `{display_name}`"
+            return f"{prefix} {title}"
+        return prefix.removesuffix(" ·")
+
+    def _single_line_title(self, value: Any) -> str:
+        lines = [re.sub(r"\s+", " ", line).strip() for line in str(value).splitlines()]
+        return next((line for line in lines if line), "")
 
     def _format_score_line(self, total: float, scores: dict[str, Any]) -> str:
         return (

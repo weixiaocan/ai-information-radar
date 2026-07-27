@@ -431,6 +431,35 @@ class DailyDigestBuilderTest(unittest.TestCase):
 
 
 class WeeklyDigestBuilderTest(unittest.TestCase):
+    def test_weekly_card_renders_multiline_x_highlights_as_clean_single_lines(self) -> None:
+        client = Mock()
+        builder = WeeklyDigestBuilder(client, "prompts/weekly_pitch.md", "prompts/weekly_themes.md")
+        themes = [
+            {
+                "title": "AI agents",
+                "summary": "Theme summary",
+                "highlights": [
+                    {
+                        "title": "Use one agent to do the work and another to review it.\n\n@someone explains more",
+                        "url": "https://x.com/example/status/1",
+                        "source_name": "Peter Yang",
+                        "type": "x",
+                    }
+                ],
+            }
+        ]
+
+        elements = builder._build_elements(themes, [])
+        theme_text = elements[1]["text"]["content"]
+
+        self.assertIn(
+            "𝕏 **Peter Yang** · [Use one agent to do the work and another to review it.](https://x.com/example/status/1)",
+            theme_text,
+        )
+        self.assertNotIn("@someone", theme_text)
+        self.assertNotIn("> 𝕏", theme_text)
+        self.assertNotIn("`Peter Yang`", theme_text)
+
     def test_weekly_digest_uses_original_source_names_for_historical_zara_items(self) -> None:
         client = Mock()
         client.weekly_themes.return_value = {
