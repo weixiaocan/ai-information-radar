@@ -5,6 +5,7 @@ import logging
 import random
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -28,7 +29,9 @@ class DeepSeekClient:
     api_key: str
     base_url: str
     timeout_seconds: int
-    retry_delays_seconds: tuple[int, ...] = (10, 30, 90)
+    retry_delays_seconds: tuple[int, ...] = (1800,)
+    insufficient_balance_notifier: Callable[[dict[str, Any]], None] | None = None
+    _insufficient_balance_notified: bool = False
 
     def _chat_completion(
         self,
@@ -65,6 +68,8 @@ class DeepSeekClient:
                     json=payload,
                     timeout=timeout_seconds or self.timeout_seconds,
                 )
+                if response.status_code == 402:
+                    self._notify_insufficient_balance(response)
                 if self._should_retry_status(response.status_code) and attempt < attempts:
                     wait_seconds = self._retry_delay(attempt)
                     LOGGER.warning(
@@ -113,7 +118,23 @@ class DeepSeekClient:
         return result["choices"][0]["message"]["content"]
 
     def _should_retry_status(self, status_code: int) -> bool:
-        return status_code == 429 or 500 <= status_code < 600
+        return status_code >= 400 and status_code != 402
+
+    def _notify_insufficient_balance(self, response: requests.Response) -> None:
+        if self._insufficient_balance_notified or self.insufficient_balance_notifier is None:
+            return
+        self._insufficient_balance_notified = True
+        try:
+            body = response.json()
+        except ValueError:
+            body = {"raw_response": response.text[:1000]}
+        self.insufficient_balance_notifier(
+            {
+                "status_code": response.status_code,
+                "reason": "insufficient_balance",
+                "response": body,
+            }
+        )
 
     def _retry_delay(self, attempt: int) -> float:
         index = min(attempt - 1, len(self.retry_delays_seconds) - 1)

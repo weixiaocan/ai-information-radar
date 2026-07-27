@@ -33,15 +33,46 @@ class LLMClientValidationTest(unittest.TestCase):
         self.assertEqual(post_mock.call_count, 2)
         sleep_mock.assert_called_once_with(0.0)
 
-    def test_chat_completion_does_not_retry_auth_errors(self) -> None:
+    def test_chat_completion_retries_non_balance_http_errors_after_configured_delay(self) -> None:
         client = DeepSeekClient(
             api_key="key",
             base_url="https://example.com",
             timeout_seconds=30,
-            retry_delays_seconds=(0, 0),
+            retry_delays_seconds=(1800,),
+        )
+        failed_response = Mock()
+        failed_response.status_code = 400
+        failed_response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=failed_response)
+        recovered_response = Mock()
+        recovered_response.status_code = 200
+        recovered_response.json.return_value = {"choices": [{"message": {"content": "{}"}}]}
+        recovered_response.raise_for_status.return_value = None
+
+        with patch(
+            "src.utils.llm_client.requests.post",
+            side_effect=[failed_response, recovered_response],
+        ) as post_mock:
+            with patch("src.utils.llm_client.time.sleep") as sleep_mock:
+                result = client._chat_completion("prompt", model="deepseek-chat")
+
+        self.assertEqual(result, "{}")
+        self.assertEqual(post_mock.call_count, 2)
+        sleep_mock.assert_called_once()
+        self.assertGreaterEqual(sleep_mock.call_args.args[0], 1800.0)
+        self.assertLessEqual(sleep_mock.call_args.args[0], 1801.0)
+
+    def test_chat_completion_notifies_and_does_not_retry_insufficient_balance(self) -> None:
+        notifier = Mock()
+        client = DeepSeekClient(
+            api_key="key",
+            base_url="https://example.com",
+            timeout_seconds=30,
+            retry_delays_seconds=(1800,),
+            insufficient_balance_notifier=notifier,
         )
         response = Mock()
-        response.status_code = 401
+        response.status_code = 402
+        response.json.return_value = {"error": {"message": "Insufficient Balance"}}
         response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=response)
 
         with patch("src.utils.llm_client.requests.post", return_value=response) as post_mock:
@@ -49,6 +80,8 @@ class LLMClientValidationTest(unittest.TestCase):
                 client._chat_completion("prompt", model="deepseek-chat")
 
         post_mock.assert_called_once()
+        notifier.assert_called_once()
+        self.assertEqual(notifier.call_args.args[0]["reason"], "insufficient_balance")
 
     def test_chat_completion_json_retries_once_on_invalid_json(self) -> None:
         client = DeepSeekClient(api_key="key", base_url="https://example.com", timeout_seconds=30)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import shutil
 from datetime import date, datetime, timedelta, timezone
@@ -28,6 +29,7 @@ from src.utils.llm_client import DeepSeekClient
 from src.utils.transcript_client import TranscriptClient
 
 LOCAL_TIMEZONE = ZoneInfo("Asia/Shanghai")
+LOGGER = logging.getLogger(__name__)
 
 
 class Pipeline:
@@ -35,10 +37,12 @@ class Pipeline:
         self.settings = settings
         self.state_manager = StateManager(settings.project_root / "state")
         self.transcript_store = TranscriptStore(settings.project_root / "transcripts")
+        self.feishu = FeishuDelivery(settings.feishu_webhook_url, settings.request_timeout_seconds)
         self.client = DeepSeekClient(
             api_key=settings.deepseek_api_key,
             base_url=settings.deepseek_base_url,
             timeout_seconds=settings.request_timeout_seconds,
+            insufficient_balance_notifier=self._notify_deepseek_insufficient_balance,
         )
         self.transcript_client = TranscriptClient(
             timeout_seconds=settings.request_timeout_seconds,
@@ -82,7 +86,6 @@ class Pipeline:
             settings.project_root / "prompts" / "tier2_score.md",
             self.state_manager,
         )
-        self.feishu = FeishuDelivery(settings.feishu_webhook_url, settings.request_timeout_seconds)
         self.site_publisher = (
             SitePublisher(
                 settings.project_root,
@@ -95,6 +98,28 @@ class Pipeline:
             else None
         )
         self._last_zara_fetch_reports: list[Any] = []
+
+    def _notify_deepseek_insufficient_balance(self, details: dict[str, Any]) -> None:
+        self.state_manager.append_ops_event(
+            {
+                "severity": "error",
+                "task": "deepseek",
+                "event": "deepseek_insufficient_balance",
+                "details": details,
+            }
+        )
+        self.state_manager.write_heartbeat("deepseek_insufficient_balance", details)
+        try:
+            self.feishu.send(
+                {
+                    "msg_type": "text",
+                    "content": {
+                        "text": "🚨 AI Radar：DeepSeek API 余额不足，任务已停止重试。请充值后重新运行失败任务。"
+                    },
+                }
+            )
+        except Exception:
+            LOGGER.exception("Failed to deliver DeepSeek insufficient balance alert to Feishu")
 
     def ingest(self, recent_days_override: int | None = None, ignore_seen: bool = False) -> list[ContentItem]:
         from src.ingestion.gmail_newsletter_fetcher import GmailNewsletterFetcher
