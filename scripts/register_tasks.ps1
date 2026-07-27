@@ -2,7 +2,7 @@ param(
     [string]$TaskPrefix = "AI Radar",
     [string]$PythonExe = "",
     [string]$RunAsUser = "",
-    [string]$DailyTime = "08:00",
+    [string]$DailyTime = "08:30",
     [string]$IngestTime = "07:00",
     [string]$Tier1Time = "07:30",
     [string]$DailyCurateTime = "07:50",
