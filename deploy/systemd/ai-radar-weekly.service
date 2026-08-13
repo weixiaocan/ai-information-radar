@@ -1,0 +1,12 @@
+[Unit]
+Description=AI Radar weekly digest and health delivery
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/ai-radar
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/ai-radar/scripts/run_pipeline.sh weekly --deliver
+TimeoutStartSec=60min

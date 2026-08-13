@@ -1,0 +1,12 @@
+[Unit]
+Description=AI Radar daily digest delivery
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/ai-radar
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/ai-radar/scripts/run_pipeline.sh daily --deliver
+TimeoutStartSec=45min

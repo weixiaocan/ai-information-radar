@@ -1,0 +1,10 @@
+[Unit]
+Description=AI Radar daily digest timer
+
+[Timer]
+OnCalendar=*-*-* 08:30:00 Asia/Shanghai
+Persistent=true
+Unit=ai-radar-daily.service
+
+[Install]
+WantedBy=timers.target

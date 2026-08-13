@@ -1,0 +1,10 @@
+[Unit]
+Description=AI Radar daily curation timer
+
+[Timer]
+OnCalendar=*-*-* 07:50:00 Asia/Shanghai
+Persistent=true
+Unit=ai-radar@daily-curate.service
+
+[Install]
+WantedBy=timers.target

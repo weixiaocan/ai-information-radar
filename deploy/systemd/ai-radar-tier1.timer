@@ -1,0 +1,10 @@
+[Unit]
+Description=AI Radar daily Tier 1 timer
+
+[Timer]
+OnCalendar=*-*-* 07:30:00 Asia/Shanghai
+Persistent=true
+Unit=ai-radar@tier1.service
+
+[Install]
+WantedBy=timers.target

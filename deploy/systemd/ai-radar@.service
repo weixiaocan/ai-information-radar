@@ -1,0 +1,15 @@
+[Unit]
+Description=AI Radar pipeline task %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/ai-radar
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/ai-radar/scripts/run_pipeline.sh %i
+TimeoutStartSec=45min
+
+[Install]
+WantedBy=multi-user.target
