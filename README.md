@@ -143,3 +143,43 @@ npm install
 - `transcripts/`：标准化内容仓
 - `state/`：运行状态、候选池、主题、选择结果
 - `reports/`：日报 / 周报归档
+
+## 阿里云服务器部署
+
+生产任务运行在香港阿里云 Ubuntu 服务器，项目目录为 `/opt/ai-radar`。服务器使用 Python 虚拟环境和 systemd timers；Windows 本机只保留代码副本，以下 5 个计划任务必须保持禁用，避免重复抓取或重复推送：
+
+- `AI Radar Ingest`
+- `AI Radar Tier1`
+- `AI Radar Daily Curate`
+- `AI Radar Daily Digest`
+- `AI Radar Weekly Digest`
+
+服务器按 `Asia/Shanghai` 时区执行：
+
+| 时间 | systemd timer | 任务 |
+| --- | --- | --- |
+| 每天 07:00 | `ai-radar-ingest.timer` | 抓取最近 1 天内容 |
+| 每天 07:30 | `ai-radar-tier1.timer` | Tier 1 处理 |
+| 每天 07:50 | `ai-radar-daily-curate.timer` | 日报策展 |
+| 每天 08:30 | `ai-radar-daily.timer` | 生成、发布并推送日报 |
+| 每周一 09:00 | `ai-radar-weekly.timer` | 生成周报并发送系统健康卡 |
+
+在本机通过 SSH 查看定时器和日志：
+
+```powershell
+ssh ai-radar-server "systemctl list-timers 'ai-radar-*' --all"
+ssh ai-radar-server "journalctl -u ai-radar-daily.service -n 100 --no-pager"
+ssh ai-radar-server "tail -n 20 /opt/ai-radar/state/heartbeat.log"
+```
+
+服务器手动补跑命令：
+
+```powershell
+ssh ai-radar-server "cd /opt/ai-radar && ./scripts/run_pipeline.sh ingest --days 1"
+ssh ai-radar-server "cd /opt/ai-radar && ./scripts/run_pipeline.sh tier1"
+ssh ai-radar-server "cd /opt/ai-radar && ./scripts/run_pipeline.sh daily-curate"
+ssh ai-radar-server "cd /opt/ai-radar && ./scripts/run_pipeline.sh daily --deliver"
+ssh ai-radar-server "cd /opt/ai-radar && ./scripts/run_pipeline.sh weekly --deliver"
+```
+
+部署使用的 systemd 文件位于 `deploy/systemd/`。修改代码或配置后，需要同步到 `/opt/ai-radar` 并执行 `systemctl daemon-reload`；不要把 `.env`、SSH 私钥或其他 secrets 提交到 Git。
