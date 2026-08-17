@@ -123,6 +123,7 @@ class Pipeline:
 
     def ingest(self, recent_days_override: int | None = None, ignore_seen: bool = False) -> list[ContentItem]:
         from src.ingestion.gmail_newsletter_fetcher import GmailNewsletterFetcher
+        from src.ingestion.hn_algolia_fetcher import HNAlgoliaFetcher
         from src.ingestion.rss_fetcher import RSSFetcher
         from src.ingestion.web_fetcher import WebFetcher
         from src.ingestion.youtube_fetcher import YouTubeFetcher
@@ -150,6 +151,8 @@ class Pipeline:
         channels = channel_config.get("channels", [])
         playlists = channel_config.get("playlists", [])
         rss_sources = load_yaml(self.settings.project_root / "config" / "rss_sources.yaml").get("sources", [])
+        hn_sources = [source for source in rss_sources if source.get("fetcher") == "algolia"]
+        rss_sources = [source for source in rss_sources if source.get("fetcher") != "algolia"]
         web_sources = load_yaml(self.settings.project_root / "config" / "web_sources.yaml").get("sources", [])
         newsletter_sources = load_yaml(self.settings.project_root / "config" / "newsletter_sources.yaml").get("sources", [])
         zara_feeds = [
@@ -175,6 +178,7 @@ class Pipeline:
             window_end,
         )
         rss_items = self._safe_fetch_rss(RSSFetcher, rss_sources, effective_seen_ids, recent_days, window_start, window_end)
+        hn_items = self._safe_fetch_hn(HNAlgoliaFetcher, hn_sources, effective_seen_ids, recent_days, window_start, window_end)
         web_items = self._safe_fetch_web(WebFetcher, web_sources, effective_seen_ids, recent_days, window_start, window_end)
         newsletter_items = self._safe_fetch_newsletters(
             GmailNewsletterFetcher,
@@ -204,7 +208,7 @@ class Pipeline:
                 "sources": source_statuses,
             }
         )
-        items = youtube_items + playlist_items + rss_items + web_items + newsletter_items + zara_items
+        items = youtube_items + playlist_items + rss_items + hn_items + web_items + newsletter_items + zara_items
         self.transcript_store.save_many(items)
         seen_ids.update(item.content_id for item in items)
         self.state_manager.save_seen_ids(seen_ids)
@@ -957,6 +961,35 @@ class Pipeline:
         except Exception as exc:
             self._latest_source_statuses["rss:all"] = {"status": "failed", "items_fetched": 0, "error": str(exc)}
             self.state_manager.write_heartbeat("ingest_warning", {"source": "rss", "error": str(exc)})
+            return []
+
+    def _safe_fetch_hn(
+        self,
+        fetcher_cls,
+        hn_sources: list[dict],
+        seen_ids: set[str],
+        recent_days: int,
+        start_at: datetime | None = None,
+        end_at: datetime | None = None,
+    ) -> list[ContentItem]:
+        if not hasattr(self, "_latest_source_statuses"):
+            self._latest_source_statuses = {}
+        if not hn_sources:
+            return []
+        try:
+            fetcher = fetcher_cls(self.settings.request_timeout_seconds)
+            items = fetcher.fetch(
+                hn_sources,
+                seen_ids,
+                recent_days,
+                start_at=start_at,
+                end_at=end_at,
+            )
+            self._merge_source_statuses(getattr(fetcher, "source_statuses", {}))
+            return items
+        except Exception as exc:
+            self._latest_source_statuses["rss:hacker_news_ai"] = {"status": "failed", "items_fetched": 0, "error": str(exc)}
+            self.state_manager.write_heartbeat("ingest_warning", {"source": "hn", "error": str(exc)})
             return []
 
     def _safe_fetch_web(

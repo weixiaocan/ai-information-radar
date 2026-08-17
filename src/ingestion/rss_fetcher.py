@@ -24,8 +24,8 @@ class RSSFetcher:
     def __init__(self, timeout_seconds: int) -> None:
         self.timeout_seconds = timeout_seconds
         self.goose = Goose()
-        self.retry_attempts = 3
-        self.retry_delays_seconds = (10, 30)
+        self.retry_attempts = 4
+        self.retry_delays_seconds = (10, 30, 60)
         self.feed_body_min_chars = 200
         self.source_statuses: dict[str, dict] = {}
 
