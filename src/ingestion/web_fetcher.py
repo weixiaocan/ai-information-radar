@@ -18,6 +18,8 @@ LOGGER = logging.getLogger(__name__)
 
 
 class WebFetcher:
+    USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+
     def __init__(self, timeout_seconds: int) -> None:
         self.timeout_seconds = timeout_seconds
         self.goose = Goose()
@@ -143,9 +145,16 @@ class WebFetcher:
             extra_metadata={"display_name": source.get("display_name", source["name"])},
         )
 
-    def _extract_publish_datetime(self, html: str, fallback: datetime | None) -> datetime:
+    def _extract_publish_datetime(self, html: str, fallback: datetime | str | None) -> datetime:
         if fallback:
-            return fallback if fallback.tzinfo else fallback.replace(tzinfo=timezone.utc)
+            if isinstance(fallback, datetime):
+                return fallback if fallback.tzinfo else fallback.replace(tzinfo=timezone.utc)
+            if isinstance(fallback, str):
+                try:
+                    parsed = datetime.fromisoformat(fallback.strip().replace("Z", "+00:00"))
+                    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+                except ValueError:
+                    pass
         patterns = [
             r'"datePublished"\s*:\s*"([^"]+)"',
             r'<meta[^>]+property="article:published_time"[^>]+content="([^"]+)"',
@@ -157,7 +166,8 @@ class WebFetcher:
                 continue
             value = match.group(1).replace("Z", "+00:00")
             try:
-                return datetime.fromisoformat(value)
+                parsed = datetime.fromisoformat(value)
+                return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
             except ValueError:
                 continue
         text = unescape(re.sub(r"<!--.*?-->|<[^>]+>", " ", html, flags=re.DOTALL))
@@ -178,6 +188,6 @@ class WebFetcher:
         return utc_now()
 
     def _request(self, url: str) -> requests.Response:
-        response = requests.get(url, timeout=self.timeout_seconds)
+        response = requests.get(url, headers={"User-Agent": self.USER_AGENT}, timeout=self.timeout_seconds)
         response.raise_for_status()
         return response

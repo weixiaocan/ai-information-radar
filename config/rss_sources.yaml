@@ -11,6 +11,14 @@ sources:
     display_name: The Verge AI
     url: https://www.theverge.com/rss/ai-artificial-intelligence/index.xml
     enabled: true
+  - name: google_ai_blog
+    display_name: Google AI Blog
+    url: https://blog.google/technology/ai/rss/
+    enabled: true
+  - name: import_ai
+    display_name: Import AI
+    url: https://importai.substack.com/feed
+    enabled: true
   - name: hacker_news_ai
     display_name: Hacker News AI
     fetcher: algolia

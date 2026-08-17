@@ -11,3 +11,9 @@ sources:
     index_url: "https://www.anthropic.com/news"
     article_base_url: "https://www.anthropic.com/news/"
     enabled: true
+  - name: openai_news
+    display_name: OpenAI News
+    type: scrape
+    index_url: "https://openai.com/news/"
+    article_base_url: "https://openai.com/index/"
+    enabled: true
