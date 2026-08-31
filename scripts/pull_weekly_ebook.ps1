@@ -2,7 +2,7 @@
 # 由 Windows 计划任务「AI Radar Weekly Ebook Pull」调用。
 $ErrorActionPreference = 'Continue'
 
-$dest = 'D:\huangxh\AI_Projects_100\p13_公众号文章\AI_RADAR'
+$dest = 'D:\huangxh\obsidian\输出\公众号\草稿\每周播客'
 $remote = 'ai-radar-server:/opt/ai-radar/exports/*.md'
 $log = 'D:\huangxh\AI_Projects_100\p22_AI_Radar\state\logs\weekly-ebook-pull.log'
 

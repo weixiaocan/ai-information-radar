@@ -24,7 +24,7 @@ class Settings:
     site_git_branch: str = "main"
     site_publish_timeout_seconds: int = 60
     site_push_retry_delays_seconds: tuple[int, ...] = (180, 300, 600)
-    weekly_ebook_export_dir: Path | None = Path(r"D:\huangxh\AI_Projects_100\p13_公众号文章\AI_RADAR")
+    weekly_ebook_export_dir: Path | None = Path(r"D:\huangxh\obsidian\输出\公众号\草稿\每周播客")
     request_timeout_seconds: int = 30
     zara_retry_attempts: int = 4
     zara_retry_delays_seconds: tuple[int, ...] = (60, 180, 600)
@@ -58,7 +58,7 @@ def load_settings(project_root: Path | None = None) -> Settings:
             root,
             os.getenv(
                 "WEEKLY_EBOOK_EXPORT_DIR",
-                r"D:\huangxh\AI_Projects_100\p13_公众号文章\AI_RADAR",
+                r"D:\huangxh\obsidian\输出\公众号\草稿\每周播客",
             ),
         ),
         request_timeout_seconds=int(os.getenv("REQUEST_TIMEOUT_SECONDS", "30")),
