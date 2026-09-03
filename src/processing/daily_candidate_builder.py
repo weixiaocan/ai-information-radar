@@ -61,7 +61,22 @@ class DailyCandidateBuilder:
                 degraded_stage="builder_copy" if self._last_builder_stage == "builder_copy" else "builder_decision",
                 fallback_mode="per_item_copy_fallback" if self._last_builder_stage == "builder_copy" else "empty_hot_pool",
             )
-        if any(candidate.get("degraded_stage") for candidate in builder_hot_candidates):
+        degraded_candidates = [candidate for candidate in builder_hot_candidates if candidate.get("degraded_stage")]
+        fallback_modes = {str(candidate.get("fallback_mode", "")) for candidate in degraded_candidates}
+        backfill_modes = {"backfill_llm_rewrite", "backfill_low_confidence_llm_rewrite"}
+        if degraded_candidates and fallback_modes and fallback_modes <= backfill_modes:
+            fallback_mode = (
+                "backfill_low_confidence_llm_rewrite"
+                if "backfill_low_confidence_llm_rewrite" in fallback_modes
+                else "backfill_llm_rewrite"
+            )
+            return with_degraded_fields(
+                payload,
+                degraded_reason="builder_decision_failed",
+                degraded_stage="builder_decision",
+                fallback_mode=fallback_mode,
+            )
+        if degraded_candidates:
             return with_degraded_fields(
                 payload,
                 degraded_reason="builder_copy_failed",
@@ -77,7 +92,6 @@ class DailyCandidateBuilder:
         decisions = self._fetch_builder_decisions(builder_items)
         if not decisions:
             self._last_builder_stage = "builder_decision"
-            return []
         copies = self._fetch_builder_copy_payload(builder_items, decisions)
         items_by_id = {item.content_id: item for item in builder_items}
         items_by_url = {item.url: item for item in builder_items if item.url}
@@ -712,7 +726,10 @@ class DailyCandidateBuilder:
     def _collect_decision_issues(self, payload: dict[str, Any] | None) -> list[str]:
         issues: list[str] = []
         data = payload or {}
-        for index, signal in enumerate(data.get("signals", [])[:10], start=1):
+        signals = data.get("signals", [])[:10]
+        if not signals:
+            issues.append("No builder signals were selected; select at least one concrete AI builder signal.")
+        for index, signal in enumerate(signals, start=1):
             decision = self._coerce_signal_decision_payload(signal)
             if not decision["content_id"]:
                 issues.append(f"Signal {index} missing `content_id`.")

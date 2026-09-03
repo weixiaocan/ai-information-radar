@@ -48,6 +48,50 @@ class DailyCandidateBuilderTest(unittest.TestCase):
         self.assertEqual(payload["degraded_reason"], "builder_decision_failed")
         self.assertEqual(payload["degraded_stage"], "builder_decision")
 
+    def test_empty_model_decisions_still_backfill_relevant_builder_post(self) -> None:
+        client = Mock()
+        client.daily_builder_hot_decisions.return_value = {"signals": []}
+        client.daily_builder_hot_copy.return_value = {
+            "signals": [{
+                "content_id": "zara_x_1",
+                "source": "Builder",
+                "url": "https://x.com/1",
+                "topic_label": "Agent 评测",
+                "core_claim": "团队发布了新的 Agent 评测方法，用真实任务衡量工具效果。",
+                "angle": "工程实践",
+                "excerpt": "新的评测覆盖真实编码任务、失败重放与回归检查。",
+                "spotlight_text": "用真实任务和失败重放评测 Agent，比只看跑分更可靠",
+            }]
+        }
+        builder = DailyCandidateBuilder(client, Path("prompts/theme_signal_extractor.md"))
+        builder._is_builder_relevant = Mock(return_value=True)  # type: ignore[method-assign]
+        builder._is_backfill_too_weak = Mock(return_value=False)  # type: ignore[method-assign]
+        builder._is_backfill_too_vague = Mock(return_value=False)  # type: ignore[method-assign]
+        item = ContentItem(
+            content_id="zara_x_1",
+            source_type="zara_x",
+            source_name="zara_x",
+            title="Agent evaluation launch",
+            url="https://x.com/1",
+            author="Builder",
+            published_at=datetime(2026, 9, 2, tzinfo=timezone.utc),
+            fetched_at=datetime(2026, 9, 3, tzinfo=timezone.utc),
+            body="We launched an agent evaluation suite with real coding tasks and failure replay.",
+            body_type="tweet",
+            ai_summary="新的 Agent 评测套件使用真实编码任务和失败重放。",
+        )
+
+        payload = builder.build([item])
+
+        self.assertEqual(client.daily_builder_hot_decisions.call_count, 3)
+        self.assertEqual(len(payload["builder_hot_candidates"]), 1)
+        candidate = payload["builder_hot_candidates"][0]
+        self.assertEqual(builder_candidate_decision(candidate)["content_id"], "zara_x_1")
+        self.assertEqual(candidate["fallback_mode"], "backfill_llm_rewrite")
+        self.assertEqual(payload["degraded_reason"], "builder_decision_failed")
+        self.assertEqual(payload["degraded_stage"], "builder_decision")
+        self.assertEqual(payload["fallback_mode"], "backfill_llm_rewrite")
+
     def test_synthesize_signal_from_english_builder_post(self) -> None:
         client = Mock()
         client.daily_builder_hot_copy.return_value = {

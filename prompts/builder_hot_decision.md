@@ -5,6 +5,7 @@ Rules:
 - Use only facts present in the input posts.
 - Decide which posts should enter the builder hot pool.
 - Keep at most 10 accepted posts.
+- When builder posts are provided, keep at least 1 concrete AI-related post.
 - Skip weak, generic, personal, or low-information posts.
 - Prefer concrete AI/agent/build/tool/company signals.
 
