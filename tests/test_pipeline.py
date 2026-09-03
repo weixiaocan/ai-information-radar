@@ -537,8 +537,9 @@ class PipelineHelpersTest(unittest.TestCase):
 
         self.assertEqual(payload["status"], "blocked")
         self.assertEqual(payload["reason"], "daily_curate_blocking_errors")
-        self.assertEqual(payload["blocking_errors"]["candidates"]["degraded_reason"], "builder_decision_failed")
-        self.assertEqual(payload["blocking_errors"]["selections"]["degraded_stage"], "selection_decision")
+        self.assertEqual(payload["blocking_errors"]["daily_content"]["degraded_reason"], "empty_daily_digest")
+        self.assertEqual(payload["warnings"]["candidates"]["fallback_quality"], "section_omitted")
+        self.assertEqual(payload["warnings"]["selections"]["fallback_quality"], "section_omitted")
         pipeline.daily_builder.build.assert_not_called()
         pipeline._write_daily_report.assert_not_called()
         pipeline.feishu.send.assert_not_called()
@@ -551,15 +552,24 @@ class PipelineHelpersTest(unittest.TestCase):
                 "run_id": "run-123",
                 "items": 1,
                 "blocking_errors": {
+                    "daily_content": {
+                        "degraded_reason": "empty_daily_digest",
+                        "degraded_stage": "daily_quality",
+                        "fallback_mode": "",
+                    },
+                },
+                "warnings": {
                     "candidates": {
                         "degraded_reason": "builder_decision_failed",
                         "degraded_stage": "builder_decision",
                         "fallback_mode": "empty_hot_pool",
+                        "fallback_quality": "section_omitted",
                     },
                     "selections": {
                         "degraded_reason": "selection_decision_failed",
                         "degraded_stage": "selection_decision",
                         "fallback_mode": "empty_selection",
+                        "fallback_quality": "section_omitted",
                     },
                 },
             },
@@ -692,6 +702,107 @@ class PipelineHelpersTest(unittest.TestCase):
 
         self.assertEqual(quality["blocking"], {})
         self.assertEqual(quality["warnings"]["selections"]["fallback_quality"], "passed")
+
+    def test_builder_decision_failure_is_warning_when_editorial_selection_exists(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        manifest = {
+            "degraded": {
+                "candidates": {
+                    "degraded_reason": "builder_decision_failed",
+                    "degraded_stage": "builder_decision",
+                    "fallback_mode": "empty_hot_pool",
+                }
+            }
+        }
+        selections = {
+            "selections": [{
+                "decision": {
+                    "content_id": "rss_1",
+                    "channel_or_source": "Source",
+                    "title": "Title",
+                    "url": "https://example.com/1",
+                },
+                "copy": {"value_pitch": "这条内容可以作为今日精选正常展示。"},
+            }]
+        }
+
+        quality = Pipeline._assess_daily_curate_quality(
+            pipeline,
+            manifest,
+            {"builder_hot_candidates": [], "editorial_candidates": []},
+            {"themes": [], "discussion_dispersion": "dispersed", "supplementary_items": []},
+            selections,
+        )
+
+        self.assertEqual(quality["blocking"], {})
+        self.assertEqual(quality["warnings"]["candidates"]["fallback_quality"], "section_omitted")
+
+    def test_daily_blocks_only_when_every_renderable_section_is_empty(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        manifest = {
+            "degraded": {
+                "candidates": {
+                    "degraded_reason": "builder_decision_failed",
+                    "degraded_stage": "builder_decision",
+                    "fallback_mode": "empty_hot_pool",
+                },
+                "selections": {
+                    "degraded_reason": "selection_decision_failed",
+                    "degraded_stage": "selection_decision",
+                    "fallback_mode": "empty_selection",
+                },
+            }
+        }
+
+        quality = Pipeline._assess_daily_curate_quality(
+            pipeline,
+            manifest,
+            {"builder_hot_candidates": [], "editorial_candidates": []},
+            {"themes": [], "discussion_dispersion": "dispersed", "supplementary_items": []},
+            {"selections": []},
+        )
+
+        self.assertEqual(quality["blocking"]["daily_content"]["degraded_reason"], "empty_daily_digest")
+
+    def test_empty_hot_pool_is_warning_when_supplementary_content_exists(self) -> None:
+        pipeline = Pipeline.__new__(Pipeline)
+        manifest = {
+            "degraded": {
+                "candidates": {
+                    "degraded_reason": "builder_decision_failed",
+                    "degraded_stage": "builder_decision",
+                    "fallback_mode": "empty_hot_pool",
+                },
+                "selections": {
+                    "degraded_reason": "selection_decision_failed",
+                    "degraded_stage": "selection_decision",
+                    "fallback_mode": "empty_selection",
+                }
+            }
+        }
+        themes = {
+            "themes": [],
+            "discussion_dispersion": "dispersed",
+            "supplementary_items": [{
+                "content_id": "rss_1",
+                "source_name": "Source",
+                "title": "Supplementary item",
+                "url": "https://example.com/1",
+                "brief": "仍有补充候选可以正常展示。",
+            }],
+        }
+
+        quality = Pipeline._assess_daily_curate_quality(
+            pipeline,
+            manifest,
+            {"builder_hot_candidates": [], "editorial_candidates": []},
+            themes,
+            {"selections": []},
+        )
+
+        self.assertEqual(quality["blocking"], {})
+        self.assertEqual(quality["warnings"]["candidates"]["fallback_quality"], "section_omitted")
+        self.assertEqual(quality["warnings"]["selections"]["fallback_quality"], "section_omitted")
 
     def test_selection_copy_fallback_blocks_when_required_fields_are_missing(self) -> None:
         pipeline = Pipeline.__new__(Pipeline)

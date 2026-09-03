@@ -461,9 +461,23 @@ class Pipeline:
         degraded = self._daily_curate_degraded_summary(manifest)
         blocking: dict[str, Any] = {}
         warnings: dict[str, Any] = {}
+        has_renderable_content = any(
+            (
+                candidates_data.get("builder_hot_candidates"),
+                themes_data.get("themes"),
+                selections_data.get("selections"),
+                themes_data.get("supplementary_items"),
+            )
+        )
         for section, metadata in degraded.items():
             fallback_mode = str(metadata.get("fallback_mode", "")).strip()
             degraded_stage = str(metadata.get("degraded_stage", "")).strip()
+            if section == "candidates" and degraded_stage == "builder_decision" and fallback_mode == "empty_hot_pool":
+                warnings[section] = {**metadata, "fallback_quality": "section_omitted"}
+                continue
+            if section == "selections" and degraded_stage == "selection_decision" and fallback_mode == "empty_selection":
+                warnings[section] = {**metadata, "fallback_quality": "section_omitted"}
+                continue
             if section == "selections" and degraded_stage == "selection_copy" and fallback_mode == "value_pitch_from_summary":
                 issues = self._selection_copy_fallback_issues(selections_data)
                 if issues:
@@ -492,7 +506,7 @@ class Pipeline:
                     warnings[section] = {**metadata, "fallback_quality": "passed"}
                 continue
             blocking[section] = metadata
-        if not blocking and not candidates_data.get("builder_hot_candidates") and not selections_data.get("selections"):
+        if not blocking and not has_renderable_content:
             blocking.setdefault(
                 "daily_content",
                 {
