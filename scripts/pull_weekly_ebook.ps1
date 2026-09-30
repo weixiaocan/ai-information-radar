@@ -1,8 +1,18 @@
-# 每周一只拉取服务器 /opt/ai-radar/exports 本周生成的播客文字稿。
-# 由 Windows 计划任务「AI Radar Weekly Ebook Pull」调用。
+# Pull only the current week's podcast exports.
+# Called by the Windows scheduled task "AI Radar Weekly Ebook Pull".
 $ErrorActionPreference = 'Stop'
 
-$dest = 'D:\huangxh\obsidian\输出\公众号\草稿\每周播客'
+function ConvertFrom-CodePoints {
+    param([int[]]$CodePoints)
+    return -join ($CodePoints | ForEach-Object { [char]$_ })
+}
+
+$obsidianRoot = 'D:\huangxh\obsidian'
+$outputDir = ConvertFrom-CodePoints @(0x8F93, 0x51FA)
+$wechatDir = ConvertFrom-CodePoints @(0x516C, 0x4F17, 0x53F7)
+$publishedDir = ConvertFrom-CodePoints @(0x5DF2, 0x53D1, 0x5E03)
+$dest = Join-Path (Join-Path (Join-Path $obsidianRoot $outputDir) $wechatDir) $publishedDir
+$dest = Join-Path $dest 'AI_RADAR'
 $remoteHost = 'ai-radar-server'
 $remoteRoot = '/opt/ai-radar/exports'
 $log = 'D:\huangxh\AI_Projects_100\p22_AI_Radar\state\logs\weekly-ebook-pull.log'
