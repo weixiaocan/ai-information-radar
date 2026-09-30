@@ -10,9 +10,10 @@ function ConvertFrom-CodePoints {
 $obsidianRoot = 'D:\huangxh\obsidian'
 $outputDir = ConvertFrom-CodePoints @(0x8F93, 0x51FA)
 $wechatDir = ConvertFrom-CodePoints @(0x516C, 0x4F17, 0x53F7)
-$publishedDir = ConvertFrom-CodePoints @(0x5DF2, 0x53D1, 0x5E03)
-$dest = Join-Path (Join-Path (Join-Path $obsidianRoot $outputDir) $wechatDir) $publishedDir
-$dest = Join-Path $dest 'AI_RADAR'
+$draftDir = ConvertFrom-CodePoints @(0x8349, 0x7A3F)
+$dailyPodcastDir = ConvertFrom-CodePoints @(0x6BCF, 0x65E5, 0x64AD, 0x5BA2)
+$dest = Join-Path (Join-Path (Join-Path $obsidianRoot $outputDir) $wechatDir) $draftDir
+$dest = Join-Path $dest $dailyPodcastDir
 $remoteHost = 'ai-radar-server'
 $remoteRoot = '/opt/ai-radar/exports'
 $log = 'D:\huangxh\AI_Projects_100\p22_AI_Radar\state\logs\weekly-ebook-pull.log'

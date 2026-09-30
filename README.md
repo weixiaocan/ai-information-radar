@@ -43,7 +43,7 @@ Builder/X 信号源：
 
 其中 Top 2 只来自完成 Tier 2 评分的 YouTube 内容。
 
-每周推荐的播客文字稿默认复制到 Obsidian 目录 `D:\huangxh\obsidian\输出\公众号\已发布\AI_RADAR`，项目内的 `reports/ebook/` 原稿仍保留。本地生成任务可通过 `.env` 中的 `WEEKLY_EBOOK_EXPORT_DIR` 覆盖导出路径；Windows 计划任务使用的服务器拉取脚本 `scripts/pull_weekly_ebook.ps1` 只同步服务器本周一以来生成的稿件到上述 Obsidian 目录，并在日志中记录周区间和文件名。PowerShell 脚本以纯 ASCII 保存，并在运行时构造中文路径，避免 Windows PowerShell 5 将无 BOM 的 UTF-8 路径解码成乱码。
+每周推荐的播客文字稿默认复制到 Obsidian 目录 `D:\huangxh\obsidian\输出\公众号\草稿\每日播客`，项目内的 `reports/ebook/` 原稿仍保留。本地生成任务可通过 `.env` 中的 `WEEKLY_EBOOK_EXPORT_DIR` 覆盖导出路径；Windows 计划任务使用的服务器拉取脚本 `scripts/pull_weekly_ebook.ps1` 只同步服务器本周一以来生成的稿件到上述 Obsidian 目录，并在日志中记录周区间和文件名。PowerShell 脚本以纯 ASCII 保存，并在运行时构造中文路径，避免 Windows PowerShell 5 将无 BOM 的 UTF-8 路径解码成乱码。
 
 ## 快速开始
 
