@@ -146,9 +146,11 @@ npm install
 - `state/`：运行状态、候选池、主题、选择结果
 - `reports/`：日报 / 周报归档
 
-## 阿里云服务器部署
+## 托管生产部署
 
-生产任务运行在香港阿里云 Ubuntu 服务器，项目目录为 `/opt/ai-radar`。服务器使用 Python 虚拟环境和 systemd timers；Windows 本机只保留代码副本，以下 5 个计划任务必须保持禁用，避免重复抓取或重复推送：
+生产任务必须运行在持续在线的托管执行环境中，个人电脑关机后仍要完成采集、整理、飞书推送和站点发布。Windows 本机仅用于开发、手工恢复和迁移验证，不能作为生产调度的唯一依赖。
+
+当前香港阿里云 Ubuntu 服务器是过渡与回退环境，项目目录为 `/opt/ai-radar`，使用 Python 虚拟环境和 systemd timers。在新的托管执行方案连续完成两个日报周期前，以下 5 个 Windows 计划任务必须保持禁用，避免重复抓取或重复推送：
 
 - `AI Radar Ingest`
 - `AI Radar Tier1`
@@ -156,7 +158,7 @@ npm install
 - `AI Radar Daily Digest`
 - `AI Radar Weekly Digest`
 
-服务器按 `Asia/Shanghai` 时区执行：
+当前过渡服务器按 `Asia/Shanghai` 时区执行：
 
 | 时间 | systemd timer | 任务 |
 | --- | --- | --- |
@@ -184,4 +186,4 @@ ssh ai-radar-server "cd /opt/ai-radar && ./scripts/run_pipeline.sh daily --deliv
 ssh ai-radar-server "cd /opt/ai-radar && ./scripts/run_pipeline.sh weekly --deliver"
 ```
 
-部署使用的 systemd 文件位于 `deploy/systemd/`。修改代码或配置后，需要同步到 `/opt/ai-radar` 并执行 `systemctl daemon-reload`；不要把 `.env`、SSH 私钥或其他 secrets 提交到 Git。
+当前过渡部署使用的 systemd 文件位于 `deploy/systemd/`。目标托管平台必须提供持久状态恢复、Secret 注入和调度日志；修改代码或配置后，不要把 `.env`、OAuth 凭据、SSH 私钥或其他 secrets 提交到 Git。

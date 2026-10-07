@@ -2,18 +2,19 @@
 
 ## Source of Truth
 
-- `prd.md` defines product scope and acceptance criteria.
-- `AGENTS.md` defines V1 hard constraints and overrides `prd.md` when they conflict.
+- `docs/PRODUCT_SPEC.md` defines public product scope and acceptance criteria.
+- `AGENTS.md` defines V1 hard constraints and overrides `docs/PRODUCT_SPEC.md` when they conflict.
 - `README.md` must keep the Zara source attribution and the note that the Builder feed uses `zarazhangrui/follow-builders` as one upstream input.
 
 ## V1 Hard Constraints
 
-- V1 runs on a Windows local machine.
+- Production runs in an always-available hosted execution environment and must not depend on a personal computer remaining powered on.
+- Windows local execution is optional for development, manual recovery, and migration verification only.
 - LLM provider is DeepSeek API.
-- Scheduling is done by Windows Task Scheduler.
+- Production scheduling must be managed by the hosted execution environment and continue while the maintainer's personal computer is offline.
 - Delivery is via Feishu webhook.
-- State is stored locally in files, not in a database.
-- Secrets must come from `.env`.
+- State remains file-based rather than database-backed, but production state must use durable persistence that survives runner or process replacement.
+- Secrets must come from `.env` for local development or from the hosted platform's secret store in production; secrets must never be committed.
 - Prompts stay in files, not inline.
 - Use explicit timeouts for every external API call.
 - Consult `state/seen_ids.json` for incremental fetching.
