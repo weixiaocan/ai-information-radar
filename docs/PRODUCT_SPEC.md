@@ -2,8 +2,8 @@
 
 ## Document control
 
-- Status: In review
-- Revision date: 2026-10-07
+- Status: Approved
+- Revision date: 2026-10-08
 - Related evidence: `AGENTS.md`, `README.md`, existing systemd deployment units
 
 ## 1. Problem and context
@@ -86,11 +86,12 @@ Out of scope: requiring a personal computer to remain powered on; making a VPN o
 - The main source repository remains public.
 - Secrets and credentials remain exclusively in the hosted secret store and must not be committed.
 
-## 8. Open decisions
+## 8. Approved deployment decisions
 
-- Select the hosted execution platform after a network and runtime smoke test.
-- Select the durable state mechanism and retention policy.
+- GitHub-hosted Actions runners execute the scheduled pipelines, subject to the required no-delivery network and runtime smoke test before production cutover.
+- The existing Tencent Shanghai server stores versioned durable runtime snapshots over SSH; it does not run the overseas collection workload.
+- Snapshot retention, trust boundaries, rollback, and verification follow `docs/TECH_SPEC.md`.
 
 ## 9. Approval
 
-The hosted-execution requirement and public-repository decision were explicitly confirmed by the project maintainer on 2026-10-07. Platform and persistence design remain in review.
+The hosted-execution requirement and public-repository decision were explicitly confirmed by the project maintainer on 2026-10-07. The GitHub Actions execution and Tencent durable-state design was approved on 2026-10-08; production cutover remains gated by the specified smoke and migration checks.

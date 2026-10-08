@@ -2,8 +2,8 @@
 
 ## Document control
 
-- Status: In review
-- Revision date: 2026-10-07
+- Status: Approved
+- Revision date: 2026-10-08
 - Approved product specification: `docs/PRODUCT_SPEC.md`
 - Current-system baseline: public source repository, file-backed runtime state, five systemd timers on the former Hong Kong server
 
@@ -257,4 +257,4 @@ The delivery-receipt safeguard is a required implementation detail before schedu
 
 ## 13. Approval
 
-Status: awaiting maintainer approval. Approval authorizes implementation of HR-T1 through HR-T3 and a no-delivery smoke run. Enabling production delivery and disabling the former-server timers remain a separately visible cutover step.
+Status: approved by the project maintainer on 2026-10-08. Approval authorizes implementation of HR-T1 through HR-T3 and a no-delivery smoke run. Enabling production delivery and disabling the former-server timers remain a separately visible cutover step.
