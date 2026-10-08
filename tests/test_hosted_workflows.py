@@ -51,6 +51,16 @@ class HostedWorkflowContractTest(unittest.TestCase):
             self.assertNotIn("path: transcripts", text)
             self.assertNotIn("path: reports", text)
 
+    def test_hosted_orchestration_invokes_nested_shell_scripts_via_bash(self) -> None:
+        daily = (ROOT / "scripts" / "hosted" / "run_daily.sh").read_text(encoding="utf-8")
+        delivery = (ROOT / "scripts" / "hosted" / "run_delivery.sh").read_text(encoding="utf-8")
+
+        self.assertIn('bash "${project_root}/scripts/run_pipeline.sh"', daily)
+        self.assertIn('bash "${script_dir}/persist_state.sh"', daily)
+        self.assertIn('bash "${script_dir}/run_delivery.sh"', daily)
+        self.assertIn('bash "${project_root}/scripts/run_pipeline.sh"', delivery)
+        self.assertIn('bash "${script_dir}/persist_state.sh"', delivery)
+
 
 if __name__ == "__main__":
     unittest.main()

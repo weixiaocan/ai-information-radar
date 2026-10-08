@@ -10,11 +10,11 @@ run_stage() {
   local stage="$1"
   shift
   set +e
-  "${project_root}/scripts/run_pipeline.sh" "${stage}" "$@"
+  bash "${project_root}/scripts/run_pipeline.sh" "${stage}" "$@"
   local status=$?
   set -e
   if [[ ${status} -ne 0 ]]; then
-    "${script_dir}/persist_state.sh" "${run_id}-failed" "daily-failed" "${commit_sha}"
+    bash "${script_dir}/persist_state.sh" "${run_id}-failed" "daily-failed" "${commit_sha}"
     exit "${status}"
   fi
 }
@@ -22,4 +22,4 @@ run_stage() {
 run_stage ingest --days 1
 run_stage tier1
 run_stage daily-curate
-"${script_dir}/run_delivery.sh" daily "${run_id}" "${commit_sha}"
+bash "${script_dir}/run_delivery.sh" daily "${run_id}" "${commit_sha}"

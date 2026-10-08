@@ -23,10 +23,10 @@ if [[ ${reserve_status} -ne 0 ]]; then
   exit "${reserve_status}"
 fi
 
-"${script_dir}/persist_state.sh" "${run_id}-reserved" "${task}-reserved" "${commit_sha}"
+bash "${script_dir}/persist_state.sh" "${run_id}-reserved" "${task}-reserved" "${commit_sha}"
 
 set +e
-"${project_root}/scripts/run_pipeline.sh" "${task}" --deliver
+bash "${project_root}/scripts/run_pipeline.sh" "${task}" --deliver
 pipeline_status=$?
 set -e
 if [[ ${pipeline_status} -eq 0 ]]; then
@@ -34,5 +34,5 @@ if [[ ${pipeline_status} -eq 0 ]]; then
 else
   "${python_exe}" -m src.hosting.delivery_receipt uncertain --root "${project_root}" --task "${task}" --target "${target}" --run-id "${run_id}" --reason "pipeline_exit_${pipeline_status}"
 fi
-"${script_dir}/persist_state.sh" "${run_id}-final" "${task}-final" "${commit_sha}"
+bash "${script_dir}/persist_state.sh" "${run_id}-final" "${task}-final" "${commit_sha}"
 exit "${pipeline_status}"
