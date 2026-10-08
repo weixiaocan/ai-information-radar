@@ -70,7 +70,7 @@ jobs:
         with:
           repository: weixiaocan/ai-radar-site
           ssh-key: ${{ secrets.AI_RADAR_SITE_DEPLOY_KEY }}
-          persist-credentials: false
+          persist-credentials: true
           path: _site-preflight
       - name: Verify site deploy-key write access without publishing
         run: git -C _site-preflight push --dry-run origin HEAD:main

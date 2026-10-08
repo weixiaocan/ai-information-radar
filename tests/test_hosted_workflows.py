@@ -20,6 +20,7 @@ class HostedWorkflowContractTest(unittest.TestCase):
         self.assertIn("scripts/run_pipeline.sh weekly", text)
         self.assertIn("git -C _site-preflight push --dry-run origin HEAD:main", text)
         self.assertIn("secrets.AI_RADAR_SITE_DEPLOY_KEY", text)
+        self.assertIn("persist-credentials: true", text)
 
     def test_daily_schedule_is_guarded_and_uses_pinned_actions(self) -> None:
         text = (ROOT / ".github" / "workflows" / "ai-radar-daily.yml").read_text(encoding="utf-8")
