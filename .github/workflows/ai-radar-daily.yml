@@ -3,6 +3,12 @@ name: AI Radar daily production
 on:
   schedule:
     - cron: '0 23 * * *'
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type RUN_PRODUCTION to execute a real delivery
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -13,7 +19,9 @@ concurrency:
 
 jobs:
   daily:
-    if: vars.AI_RADAR_PRODUCTION_ENABLED == 'true'
+    if: >-
+      vars.AI_RADAR_PRODUCTION_ENABLED == 'true' &&
+      (github.event_name == 'schedule' || inputs.confirm == 'RUN_PRODUCTION')
     runs-on: ubuntu-latest
     timeout-minutes: 180
     environment: production

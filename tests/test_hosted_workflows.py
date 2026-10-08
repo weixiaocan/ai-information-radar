@@ -27,6 +27,8 @@ class HostedWorkflowContractTest(unittest.TestCase):
 
         self.assertIn("cron: '0 23 * * *'", text)
         self.assertIn("vars.AI_RADAR_PRODUCTION_ENABLED == 'true'", text)
+        self.assertIn("inputs.confirm == 'RUN_PRODUCTION'", text)
+        self.assertIn("github.event_name == 'schedule'", text)
         self.assertIn("permissions:\n  contents: read", text)
         self.assertIn("actions/checkout@11d5960a326750d5838078e36cf38b85af677262", text)
         self.assertIn("actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065", text)
