@@ -134,16 +134,19 @@ def promote_snapshot(store_root: Path, *, run_id: str) -> Path:
     root = store_root.resolve()
     staging = root / "incoming" / run_id
     destination = root / "versions" / run_id
-    validate_manifest(staging)
-
-    if destination.exists():
-        current_manifest = validate_manifest(destination)
+    if staging.exists():
         staged_manifest = validate_manifest(staging)
-        if current_manifest["bundle_sha256"] != staged_manifest["bundle_sha256"]:
-            raise StateBundleError("snapshot version already exists with different content")
-        shutil.rmtree(staging)
+        if destination.exists():
+            current_manifest = validate_manifest(destination)
+            if current_manifest["bundle_sha256"] != staged_manifest["bundle_sha256"]:
+                raise StateBundleError("snapshot version already exists with different content")
+            shutil.rmtree(staging)
+        else:
+            os.replace(staging, destination)
+    elif destination.exists():
+        validate_manifest(destination)
     else:
-        os.replace(staging, destination)
+        raise StateBundleError("staging snapshot is missing")
 
     temporary_link = root / f".current-{run_id}"
     temporary_link.unlink(missing_ok=True)

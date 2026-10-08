@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from src.hosting.state_bundle import (
     MANIFEST_FILENAME,
     StateBundleError,
     build_manifest,
+    promote_snapshot,
     validate_manifest,
     write_manifest,
 )
@@ -105,6 +108,35 @@ class HostedStateBundleTest(unittest.TestCase):
                 task="ingest",
                 commit_sha="abcdef1234567890abcdef1234567890abcdef12",
             )
+
+    def test_promote_retries_after_staging_was_already_moved(self) -> None:
+        store_root = self.root.parent / f"{self.root.name}-store"
+        destination = store_root / "versions" / "run-retry"
+        try:
+            staging = store_root / "incoming" / "run-retry"
+            staging.parent.mkdir(parents=True)
+            destination.parent.mkdir(parents=True)
+            shutil.copytree(self.root / "state", staging / "state")
+            shutil.copytree(self.root / "transcripts", staging / "transcripts")
+            shutil.copytree(self.root / "reports", staging / "reports")
+            write_manifest(
+                staging,
+                run_id="run-retry",
+                task="daily",
+                commit_sha="abcdef1234567890abcdef1234567890abcdef12",
+            )
+            os.replace(staging, destination)
+
+            with patch("src.hosting.state_bundle.Path.symlink_to") as symlink_to, patch(
+                "src.hosting.state_bundle.os.replace"
+            ) as replace:
+                promoted = promote_snapshot(store_root, run_id="run-retry")
+
+            self.assertEqual(destination, promoted)
+            symlink_to.assert_called_once()
+            replace.assert_called_once_with(store_root / ".current-run-retry", store_root / "current")
+        finally:
+            shutil.rmtree(store_root, ignore_errors=True)
 
     def test_symlink_is_rejected(self) -> None:
         target = self.root / "outside.txt"
