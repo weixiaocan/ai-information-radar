@@ -47,13 +47,20 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:
+def payload_exit_code(payload: object) -> int:
+    if isinstance(payload, dict) and payload.get("status") == "blocked":
+        return 3
+    return 0
+
+
+def main() -> int:
     configure_logging()
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     args = parse_args()
     settings = load_settings()
     pipeline = Pipeline(settings)
+    exit_code = 0
 
     items = []
     if args.task in {"ingest", "all"}:
@@ -65,12 +72,14 @@ def main() -> None:
     if args.task == "daily-curate":
         payload = pipeline.daily_curate()
         print(json.dumps(payload, ensure_ascii=False, indent=2))
+        exit_code = max(exit_code, payload_exit_code(payload))
     elif args.task == "all":
         pipeline.daily_curate(items)
 
     if args.task == "daily":
         payload = pipeline.daily(deliver=args.deliver)
         print(json.dumps(payload, ensure_ascii=False, indent=2))
+        exit_code = max(exit_code, payload_exit_code(payload))
     elif args.task == "all":
         payload = pipeline.daily(items, deliver=args.deliver)
         print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -81,6 +90,7 @@ def main() -> None:
     if args.task == "weekly":
         payload = pipeline.weekly(deliver=args.deliver)
         print(json.dumps(payload, ensure_ascii=False, indent=2))
+        exit_code = max(exit_code, payload_exit_code(payload))
     elif args.task == "all":
         payload = pipeline.weekly(items, deliver=args.deliver)
         print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -88,13 +98,18 @@ def main() -> None:
     if args.task == "publish-site":
         payload = pipeline.publish_site()
         print(json.dumps(payload, ensure_ascii=False, indent=2))
+        exit_code = max(exit_code, payload_exit_code(payload))
     elif args.task == "recover-site":
         payload = pipeline.recover_site_publish()
         print(json.dumps(payload, ensure_ascii=False, indent=2))
+        exit_code = max(exit_code, payload_exit_code(payload))
     elif args.task == "x-refresh-site":
         payload = pipeline.x_refresh_site()
         print(json.dumps(payload, ensure_ascii=False, indent=2))
+        exit_code = max(exit_code, payload_exit_code(payload))
+
+    return exit_code
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
