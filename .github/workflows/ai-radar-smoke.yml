@@ -2,6 +2,15 @@ name: AI Radar source smoke
 
 on:
   workflow_dispatch:
+    inputs:
+      task:
+        description: No-delivery task to validate
+        required: true
+        default: ingest
+        type: choice
+        options:
+          - ingest
+          - weekly
 
 permissions:
   contents: read
@@ -48,7 +57,20 @@ jobs:
       - name: Restore durable state
         run: bash scripts/hosted/restore_state.sh "smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
       - name: Run no-delivery source smoke
+        if: ${{ inputs.task == 'ingest' }}
         run: bash scripts/run_pipeline.sh ingest --days 1
+      - name: Run no-delivery weekly dry run
+        if: ${{ inputs.task == 'weekly' }}
+        run: bash scripts/run_pipeline.sh weekly
       - name: Write sanitized source summary
-        if: always()
+        if: ${{ always() && inputs.task == 'ingest' }}
         run: python -m src.hosting.smoke_report --root . --github-summary "${GITHUB_STEP_SUMMARY}"
+      - name: Check out site for deploy-key preflight
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: weixiaocan/ai-radar-site
+          ssh-key: ${{ secrets.AI_RADAR_SITE_DEPLOY_KEY }}
+          persist-credentials: false
+          path: _site-preflight
+      - name: Verify site deploy-key write access without publishing
+        run: git -C _site-preflight push --dry-run origin HEAD:main
