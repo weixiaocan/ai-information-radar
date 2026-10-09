@@ -25,7 +25,7 @@ class HostedWorkflowContractTest(unittest.TestCase):
     def test_daily_schedule_is_guarded_and_uses_pinned_actions(self) -> None:
         text = (ROOT / ".github" / "workflows" / "ai-radar-daily.yml").read_text(encoding="utf-8")
 
-        self.assertIn("cron: '0 23 * * *'", text)
+        self.assertIn("cron: '17 23 * * *'", text)
         self.assertIn("vars.AI_RADAR_PRODUCTION_ENABLED == 'true'", text)
         self.assertIn("inputs.confirm == 'RUN_PRODUCTION'", text)
         self.assertIn("github.event_name == 'schedule'", text)

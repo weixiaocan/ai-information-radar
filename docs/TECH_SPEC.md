@@ -59,9 +59,9 @@ The Tencent server stores versioned runtime snapshots under `/srv/ai-radar-data`
 
 ### Scheduling shape
 
-- One daily workflow starts at `23:00 UTC` (`07:00 Asia/Shanghai`) and runs `ingest -> tier1 -> daily-curate -> daily --deliver` sequentially.
+- One daily workflow starts at `23:17 UTC` (`07:17 Asia/Shanghai`) and runs `ingest -> tier1 -> daily-curate -> daily --deliver` sequentially. The non-zero minute avoids GitHub Actions' documented top-of-hour scheduling congestion.
 - One weekly workflow starts Monday at `01:00 UTC` (`09:00 Asia/Shanghai`) and runs `weekly --deliver`.
-- `workflow_dispatch` provides a smoke/manual path; delivery defaults to false.
+- The smoke workflow has a no-delivery `workflow_dispatch` path. The daily production workflow also supports a real manual delivery, but only when its explicit `confirm` input is `RUN_PRODUCTION`.
 - A repository-level concurrency group serializes all production workflows with `cancel-in-progress: false`.
 
 Consolidating the four daily stages in one job avoids restoring and persisting the same file state four times. It preserves stage order; exact completion time may differ from the old staggered timers.

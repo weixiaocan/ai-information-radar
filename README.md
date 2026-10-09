@@ -150,7 +150,7 @@ npm install
 
 生产任务必须运行在持续在线的托管执行环境中，个人电脑关机后仍要完成采集、整理、飞书推送和站点发布。Windows 本机仅用于开发、手工恢复和迁移验证，不能作为生产调度的唯一依赖。
 
-当前香港阿里云 Ubuntu 服务器是过渡与回退环境，项目目录为 `/opt/ai-radar`，使用 Python 虚拟环境和 systemd timers。在新的托管执行方案连续完成两个日报周期前，以下 5 个 Windows 计划任务必须保持禁用，避免重复抓取或重复推送：
+当前生产任务由 GitHub Actions 托管运行；腾讯服务器只在 `/srv/ai-radar-data` 保存版本化运行状态，不执行内容采集。Windows 本机和服务器 `/opt/ai-radar` 代码副本均不是生产调度入口。以下 5 个旧 Windows 计划任务必须保持禁用，避免重复抓取或重复推送：
 
 - `AI Radar Ingest`
 - `AI Radar Tier1`
@@ -158,32 +158,20 @@ npm install
 - `AI Radar Daily Digest`
 - `AI Radar Weekly Digest`
 
-当前过渡服务器按 `Asia/Shanghai` 时区执行：
+当前托管调度为：
 
-| 时间 | systemd timer | 任务 |
+| 时间 | GitHub Actions workflow | 任务 |
 | --- | --- | --- |
-| 每天 07:00 | `ai-radar-ingest.timer` | 抓取最近 1 天内容 |
-| 每天 07:30 | `ai-radar-tier1.timer` | Tier 1 处理 |
-| 每天 07:50 | `ai-radar-daily-curate.timer` | 日报策展 |
-| 每天 08:30 | `ai-radar-daily.timer` | 生成、发布并推送日报 |
-| 每周一 09:00 | `ai-radar-weekly.timer` | 生成周报并发送系统健康卡 |
+| 每天 07:17（北京时间） | `ai-radar-daily.yml` | 顺序执行 ingest、Tier 1、日报策展、站点发布和飞书投递 |
+| 每周一 09:00（北京时间） | `ai-radar-weekly.yml` | 生成周报、发布站点并发送系统健康卡 |
 
-在本机通过 SSH 查看定时器和日志：
+运行日志在仓库的 GitHub Actions 页面查看。腾讯服务器上的当前状态版本和投递收据可通过 SSH 只读核对：
 
 ```powershell
-ssh ai-radar-server "systemctl list-timers 'ai-radar-*' --all"
-ssh ai-radar-server "journalctl -u ai-radar-daily.service -n 100 --no-pager"
-ssh ai-radar-server "tail -n 20 /opt/ai-radar/state/heartbeat.log"
+ssh ai-radar-server "sudo readlink /srv/ai-radar-data/current"
+ssh ai-radar-server "sudo find -L /srv/ai-radar-data/current/state/delivery_receipts -maxdepth 1 -type f -print"
 ```
 
-服务器手动补跑命令：
+手动验证使用 `ai-radar-smoke.yml`，不会投递或发布。真实日报补跑使用 `ai-radar-daily.yml` 的 **Run workflow**，且必须将 `confirm` 输入为 `RUN_PRODUCTION`；该路径会真实发送飞书并发布站点，执行前应先核对对应日期的投递收据。
 
-```powershell
-ssh ai-radar-server "cd /opt/ai-radar && ./scripts/run_pipeline.sh ingest --days 1"
-ssh ai-radar-server "cd /opt/ai-radar && ./scripts/run_pipeline.sh tier1"
-ssh ai-radar-server "cd /opt/ai-radar && ./scripts/run_pipeline.sh daily-curate"
-ssh ai-radar-server "cd /opt/ai-radar && ./scripts/run_pipeline.sh daily --deliver"
-ssh ai-radar-server "cd /opt/ai-radar && ./scripts/run_pipeline.sh weekly --deliver"
-```
-
-当前过渡部署使用的 systemd 文件位于 `deploy/systemd/`。目标托管平台必须提供持久状态恢复、Secret 注入和调度日志；修改代码或配置后，不要把 `.env`、OAuth 凭据、SSH 私钥或其他 secrets 提交到 Git。
+托管工作流负责持久状态恢复、Secret 注入和调度日志。修改代码或配置后，不要把 `.env`、OAuth 凭据、SSH 私钥或其他 secrets 提交到 Git。
