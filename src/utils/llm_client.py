@@ -82,7 +82,34 @@ class DeepSeekClient:
                     time.sleep(wait_seconds)
                     continue
                 response.raise_for_status()
-                break
+                try:
+                    result = response.json()
+                except ValueError:
+                    result = None
+                choices = result.get("choices") if isinstance(result, dict) else None
+                if isinstance(choices, list) and choices:
+                    message = choices[0].get("message") if isinstance(choices[0], dict) else None
+                    content = message.get("content") if isinstance(message, dict) else None
+                    if isinstance(content, str) and content:
+                        return content
+                response_keys = sorted(result.keys()) if isinstance(result, dict) else []
+                if attempt >= attempts:
+                    raise RuntimeError(
+                        f"DeepSeek response has no usable choices after {attempts} attempts "
+                        f"(HTTP {response.status_code}, keys={response_keys})"
+                    )
+                wait_seconds = self._retry_delay(attempt)
+                LOGGER.warning(
+                    "DeepSeek response has no usable choices on attempt %s/%s "
+                    "(HTTP %s, keys=%s); retrying in %.1fs",
+                    attempt,
+                    attempts,
+                    response.status_code,
+                    response_keys,
+                    wait_seconds,
+                )
+                time.sleep(wait_seconds)
+                continue
             except requests.exceptions.HTTPError as exc:
                 status_code = exc.response.status_code if exc.response is not None else 0
                 if not self._should_retry_status(status_code) or attempt >= attempts:
@@ -114,8 +141,6 @@ class DeepSeekClient:
                 time.sleep(wait_seconds)
         else:
             raise RuntimeError("DeepSeek request failed unexpectedly")
-        result = response.json()
-        return result["choices"][0]["message"]["content"]
 
     def _should_retry_status(self, status_code: int) -> bool:
         return status_code >= 400 and status_code != 402

@@ -83,6 +83,37 @@ class LLMClientValidationTest(unittest.TestCase):
         notifier.assert_called_once()
         self.assertEqual(notifier.call_args.args[0]["reason"], "insufficient_balance")
 
+    def test_chat_completion_retries_response_without_choices(self) -> None:
+        client = DeepSeekClient(
+            api_key="key", base_url="https://example.com", timeout_seconds=30, retry_delays_seconds=(0,)
+        )
+        malformed = Mock(status_code=200)
+        malformed.json.return_value = {"error": {"message": "transient upstream error"}}
+        recovered = Mock(status_code=200)
+        recovered.json.return_value = {"choices": [{"message": {"content": "{}"}}]}
+
+        with patch("src.utils.llm_client.requests.post", side_effect=[malformed, recovered]) as post_mock:
+            with patch("src.utils.llm_client.time.sleep") as sleep_mock:
+                self.assertEqual(client._chat_completion("prompt", model="deepseek-chat"), "{}")
+
+        self.assertEqual(post_mock.call_count, 2)
+        sleep_mock.assert_called_once_with(0.0)
+
+    def test_chat_completion_reports_invalid_response_after_retries(self) -> None:
+        client = DeepSeekClient(
+            api_key="key", base_url="https://example.com", timeout_seconds=30, retry_delays_seconds=(0,)
+        )
+        malformed = Mock(status_code=200)
+        malformed.json.return_value = {"error": {"message": "private detail"}}
+
+        with patch("src.utils.llm_client.requests.post", return_value=malformed) as post_mock:
+            with patch("src.utils.llm_client.time.sleep"):
+                with self.assertRaisesRegex(RuntimeError, "no usable choices") as raised:
+                    client._chat_completion("prompt", model="deepseek-chat")
+
+        self.assertEqual(post_mock.call_count, 2)
+        self.assertNotIn("private detail", str(raised.exception))
+
     def test_chat_completion_json_retries_once_on_invalid_json(self) -> None:
         client = DeepSeekClient(api_key="key", base_url="https://example.com", timeout_seconds=30)
 
