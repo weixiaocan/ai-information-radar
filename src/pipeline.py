@@ -41,7 +41,8 @@ class Pipeline:
         self.client = DeepSeekClient(
             api_key=settings.deepseek_api_key,
             base_url=settings.deepseek_base_url,
-            timeout_seconds=settings.request_timeout_seconds,
+            timeout_seconds=max(settings.request_timeout_seconds, 180),
+            retry_delays_seconds=(15, 60),
             insufficient_balance_notifier=self._notify_deepseek_insufficient_balance,
         )
         self.transcript_client = TranscriptClient(
