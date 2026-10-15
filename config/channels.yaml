@@ -34,6 +34,26 @@ channels:
     handle: "@TheMADPodcast"
     enabled: true
     reason: "数据和基础设施层面的 AI 趋势。"
+  - name: ai_engineer
+    display_name: AI Engineer
+    handle: "@aiDotEngineer"
+    enabled: true
+    reason: "AI Engineer 大会演讲，一线团队讲 Agent、评估与上线的工程实践。"
+  - name: indydevdan
+    display_name: IndyDevDan
+    handle: "@indydevdan"
+    enabled: true
+    reason: "Claude Code 与 agentic coding 工作流实战。"
+  - name: cole_medin
+    display_name: Cole Medin
+    handle: "@ColeMedin"
+    enabled: true
+    reason: "从零搭建 Agent、RAG、MCP 项目，代码开源，适合动手练习。"
+  - name: dave_ebbelaar
+    display_name: Dave Ebbelaar
+    handle: "@daveebbelaar"
+    enabled: true
+    reason: "面向开发者的 AI 工程实践与转行路径。"
 playlists:
   - name: training_data
     display_name: Training Data

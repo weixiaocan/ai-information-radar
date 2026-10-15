@@ -133,21 +133,20 @@ class Pipeline:
         self._latest_source_statuses: dict[str, dict[str, Any]] = {}
         seen_ids = self.state_manager.load_seen_ids()
         effective_seen_ids = set() if ignore_seen else seen_ids
-        window_end = datetime.now(timezone.utc)
         recent_days = (
             recent_days_override
             if recent_days_override is not None
             else (self.settings.bootstrap_days if not seen_ids else self.settings.incremental_days)
         )
         previous_window = self.state_manager.load_latest_window("ingest")
-        window_start = self._resolve_ingest_window_start(
+        window_start, window_end, label_date = self._resolve_ingest_window(
             previous_window,
+            now=datetime.now(timezone.utc),
             recent_days=recent_days,
             recent_days_override=recent_days_override,
-            ignore_seen=ignore_seen,
             seen_ids=seen_ids,
-            window_end=window_end,
         )
+        self._web_stale_content_ids: set[str] = set()
         channel_config = load_yaml(self.settings.project_root / "config" / "channels.yaml")
         channels = channel_config.get("channels", [])
         playlists = channel_config.get("playlists", [])
@@ -212,11 +211,12 @@ class Pipeline:
         items = youtube_items + playlist_items + rss_items + hn_items + web_items + newsletter_items + zara_items
         self.transcript_store.save_many(items)
         seen_ids.update(item.content_id for item in items)
+        seen_ids.update(self._web_stale_content_ids)
         self.state_manager.save_seen_ids(seen_ids)
         self.state_manager.save_stage_content_ids("ingest", [item.content_id for item in items])
         self.state_manager.save_latest_window(
             "ingest",
-            self._build_window_payload(window_start, window_end),
+            self._build_window_payload(window_start, window_end, label_date),
         )
         self.state_manager.write_heartbeat(
             "ingest",
@@ -224,6 +224,7 @@ class Pipeline:
                 "new_items": len(items),
                 "recent_days": recent_days,
                 "ignore_seen": ignore_seen,
+                "window_mode": "rolling" if recent_days_override is not None else "fixed_daily",
                 "window_start": window_start.isoformat(),
                 "window_end": window_end.isoformat(),
             },
@@ -1019,7 +1020,10 @@ class Pipeline:
         if not hasattr(self, "_latest_source_statuses"):
             self._latest_source_statuses = {}
         try:
-            fetcher = fetcher_cls(self.settings.request_timeout_seconds)
+            fetcher = fetcher_cls(
+                self.settings.request_timeout_seconds,
+                date_grace_days=self.settings.web_date_grace_days,
+            )
             items = fetcher.fetch(
                 web_sources,
                 seen_ids,
@@ -1028,6 +1032,9 @@ class Pipeline:
                 end_at=end_at,
             )
             self._merge_source_statuses(getattr(fetcher, "source_statuses", {}))
+            stale_content_ids = getattr(fetcher, "stale_content_ids", None)
+            if isinstance(stale_content_ids, set):
+                self._web_stale_content_ids = set(stale_content_ids)
             return items
         except Exception as exc:
             self._latest_source_statuses["web:all"] = {"status": "failed", "items_fetched": 0, "error": str(exc)}
@@ -1295,28 +1302,72 @@ class Pipeline:
         merged_by_id.update(zara_by_id)
         return sorted(merged_by_id.values(), key=lambda item: item.published_at)
 
-    def _resolve_ingest_window_start(
+    def _resolve_ingest_window(
         self,
         previous_window: dict[str, Any],
+        *,
+        now: datetime,
         recent_days: int,
         recent_days_override: int | None,
-        ignore_seen: bool,
         seen_ids: set[str],
-        window_end: datetime,
-    ) -> datetime:
-        if not ignore_seen and recent_days_override is None:
-            previous_end = self._parse_window_timestamp(previous_window.get("end_at"))
-            if previous_end:
-                return previous_end
-        if not seen_ids:
-            return window_end - timedelta(days=self.settings.bootstrap_days)
-        return window_end - timedelta(days=recent_days)
+    ) -> tuple[datetime, datetime, str | None]:
+        """Return (start, end, label_date) for an ingest run.
 
-    def _build_window_payload(self, start_at: datetime, end_at: datetime) -> dict[str, str]:
+        Scheduled runs use fixed Asia/Shanghai daily windows ending at the most recent
+        `daily_window_hour` boundary, so the content window never depends on when the
+        hosted runner actually started. An explicit `--days` override keeps the legacy
+        rolling window for manual replays.
+        """
+        if recent_days_override is not None:
+            return now - timedelta(days=recent_days), now, None
+
+        window_end = self._latest_daily_window_boundary(now)
+        label_date = (window_end - timedelta(days=1)).astimezone(LOCAL_TIMEZONE).date().isoformat()
+        if not seen_ids:
+            return window_end - timedelta(days=self.settings.bootstrap_days), window_end, label_date
+
+        window_start = window_end - timedelta(days=1)
+        previous_end = self._parse_window_timestamp(previous_window.get("end_at"))
+        if previous_end and previous_end < window_start:
+            earliest_start = window_end - timedelta(days=self.settings.ingest_max_catchup_days)
+            if previous_end < earliest_start:
+                LOGGER.warning(
+                    "Ingest catch-up truncated: previous window ended at %s, limit is %s",
+                    previous_end.isoformat(),
+                    earliest_start.isoformat(),
+                )
+                self.state_manager.append_ops_event(
+                    {
+                        "severity": "warning",
+                        "task": "ingest",
+                        "event": "ingest_catchup_truncated",
+                        "details": {
+                            "previous_end": previous_end.isoformat(),
+                            "catchup_start": earliest_start.isoformat(),
+                            "max_catchup_days": self.settings.ingest_max_catchup_days,
+                        },
+                    }
+                )
+            window_start = max(previous_end, earliest_start)
+        return window_start, window_end, label_date
+
+    def _latest_daily_window_boundary(self, now: datetime) -> datetime:
+        local_now = now.astimezone(LOCAL_TIMEZONE)
+        boundary = local_now.replace(hour=self.settings.daily_window_hour, minute=0, second=0, microsecond=0)
+        if boundary > local_now:
+            boundary -= timedelta(days=1)
+        return boundary.astimezone(timezone.utc)
+
+    def _build_window_payload(
+        self,
+        start_at: datetime,
+        end_at: datetime,
+        label_date: str | None = None,
+    ) -> dict[str, str]:
         return {
             "start_at": start_at.isoformat(),
             "end_at": end_at.isoformat(),
-            "label_date": start_at.astimezone(LOCAL_TIMEZONE).date().isoformat(),
+            "label_date": label_date or start_at.astimezone(LOCAL_TIMEZONE).date().isoformat(),
         }
 
     def _parse_window_timestamp(self, value: Any) -> datetime | None:

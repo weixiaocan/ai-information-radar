@@ -34,6 +34,9 @@ class Settings:
     zara_x_refresh_retry_window_seconds: int = 960
     bootstrap_days: int = 7
     incremental_days: int = 1
+    daily_window_hour: int = 7
+    ingest_max_catchup_days: int = 3
+    web_date_grace_days: int = 2
     tier2_candidate_count: int = 5
 
 
@@ -72,6 +75,9 @@ def load_settings(project_root: Path | None = None) -> Settings:
         zara_x_refresh_retry_window_seconds=int(os.getenv("ZARA_X_REFRESH_RETRY_WINDOW_SECONDS", "960")),
         bootstrap_days=int(os.getenv("BOOTSTRAP_DAYS", "7")),
         incremental_days=int(os.getenv("INCREMENTAL_DAYS", "1")),
+        daily_window_hour=int(os.getenv("DAILY_WINDOW_HOUR", "7")),
+        ingest_max_catchup_days=int(os.getenv("INGEST_MAX_CATCHUP_DAYS", "3")),
+        web_date_grace_days=int(os.getenv("WEB_DATE_GRACE_DAYS", "2")),
         tier2_candidate_count=int(os.getenv("TIER2_CANDIDATE_COUNT", "5")),
     )
 

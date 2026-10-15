@@ -8,9 +8,29 @@ sources:
   - name: claude_blog
     display_name: Claude Blog
     type: scrape
+    # Posts are listed in Next.js page data; practical posts may link to claude.dev.
+    index_url: "https://www.claude.com/blog"
+    discovery: embedded_json
+    item_type: blogPost
+    slug_url_template: "https://claude.com/blog/{slug}"
+    enabled: true
+  - name: anthropic_academy
+    display_name: Anthropic Academy
+    type: scrape
+    # Course catalog without dates: the first run records existing courses as seen,
+    # later runs report only newly listed courses.
+    index_url: "https://anthropic.skilljar.com/"
+    discovery: anchor_class
+    anchor_class: coursebox-container
+    undated: true
+    enabled: true
+  - name: anthropic_news
+    display_name: Anthropic News
+    type: scrape
+    # Company news (policy, customers, offices); disabled in favor of Claude Blog.
     index_url: "https://www.anthropic.com/news"
     article_base_url: "https://www.anthropic.com/news/"
-    enabled: true
+    enabled: false
   - name: openai_news
     display_name: OpenAI News
     type: scrape

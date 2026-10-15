@@ -19,6 +19,18 @@ sources:
     display_name: Import AI
     url: https://importai.substack.com/feed
     enabled: true
+  - name: hamel_husain
+    display_name: Hamel Husain
+    url: https://hamel.dev/index.xml
+    enabled: true
+  - name: chip_huyen
+    display_name: Chip Huyen
+    url: https://huyenchip.com/feed.xml
+    enabled: true
+  - name: huggingface_blog
+    display_name: Hugging Face Blog
+    url: https://huggingface.co/blog/feed.xml
+    enabled: true
   - name: hacker_news_ai
     display_name: Hacker News AI
     fetcher: algolia

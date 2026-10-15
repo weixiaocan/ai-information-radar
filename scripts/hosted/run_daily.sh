@@ -29,7 +29,7 @@ if [[ -n "${AI_RADAR_RECOVER_TARGET_DATE:-}" || -n "${AI_RADAR_RECOVER_SOURCE_RU
     --target "${AI_RADAR_RECOVER_TARGET_DATE}" \
     --source-run-id "${AI_RADAR_RECOVER_SOURCE_RUN_ID}"
 else
-  run_stage ingest --days 1
+  run_stage ingest
 fi
 run_stage tier1
 run_stage daily-curate

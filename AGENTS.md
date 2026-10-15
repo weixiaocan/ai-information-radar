@@ -21,7 +21,9 @@
 - Write heartbeat metadata on successful task runs.
 - Append transcript fetch failures to `state/transcript_failures.jsonl`.
 - First bootstrap ingest fetches only the last 7 days of content.
-- Normal daily ingest fetches only the last 1 day of content.
+- Normal daily ingest fetches one fixed Asia/Shanghai daily window (previous day 07:00 to current day 07:00), independent of when the run actually starts.
+- If earlier windows were missed, the next ingest catches up from the last completed window end, capped at 3 days.
+- Web articles that only expose a publication date may be accepted up to 2 days before the window start; `seen_ids` prevents duplicates.
 - Do not backfill outside the configured bootstrap window unless explicitly requested.
 - Do not default to generated transcripts.
 - Daily and weekly digests must be rebuilt from stored normalized content for the target date or week, not from only the latest ingest batch.

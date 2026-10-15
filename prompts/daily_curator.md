@@ -24,7 +24,7 @@
 挑选标准，按重要性排序：
 1. 与 AI Agent、harness、coding agent、agentic engineering 的相关度
 2. 内容价值密度，不是观点重复，不是公关稿，不是泛泛访谈开场
-3. 来源信任度，Latent Space、Lenny's、Simon Willison、Anthropic Engineering 优先
+3. 来源信任度，Latent Space、Lenny's、Simon Willison、Anthropic Engineering、Claude Blog、AI Engineer、Hamel Husain 优先
 4. 不要选标题党或 clickbait
 
 每条输出：
