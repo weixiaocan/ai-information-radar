@@ -19,7 +19,18 @@ run_stage() {
   fi
 }
 
-run_stage ingest --days 1
+if [[ -n "${AI_RADAR_RECOVER_TARGET_DATE:-}" || -n "${AI_RADAR_RECOVER_SOURCE_RUN_ID:-}" ]]; then
+  if [[ -z "${AI_RADAR_RECOVER_TARGET_DATE:-}" || -z "${AI_RADAR_RECOVER_SOURCE_RUN_ID:-}" ]]; then
+    echo "daily recovery requires both target date and source run ID" >&2
+    exit 1
+  fi
+  "${AI_RADAR_PYTHON:-python3}" -m src.hosting.daily_recovery \
+    --root "${project_root}" \
+    --target "${AI_RADAR_RECOVER_TARGET_DATE}" \
+    --source-run-id "${AI_RADAR_RECOVER_SOURCE_RUN_ID}"
+else
+  run_stage ingest --days 1
+fi
 run_stage tier1
 run_stage daily-curate
 bash "${script_dir}/run_delivery.sh" daily "${run_id}" "${commit_sha}"

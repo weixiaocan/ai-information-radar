@@ -9,6 +9,14 @@ on:
         description: Type RUN_PRODUCTION to execute a real delivery
         required: true
         type: string
+      recover_target_date:
+        description: Resume a failed ingest window for this date (YYYY-MM-DD); leave blank for a normal run
+        required: false
+        type: string
+      recover_source_run_id:
+        description: Exact current failed snapshot run ID; required with recover_target_date
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -39,6 +47,8 @@ jobs:
       SITE_REPO_PATH: ai-radar-site
       SITE_GIT_BRANCH: main
       WEEKLY_EBOOK_EXPORT_DIR: ""
+      AI_RADAR_RECOVER_TARGET_DATE: ${{ inputs.recover_target_date }}
+      AI_RADAR_RECOVER_SOURCE_RUN_ID: ${{ inputs.recover_source_run_id }}
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262

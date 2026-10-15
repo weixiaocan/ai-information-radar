@@ -174,4 +174,6 @@ ssh ai-radar-server "sudo find -L /srv/ai-radar-data/current/state/delivery_rece
 
 手动验证使用 `ai-radar-smoke.yml`，不会投递或发布。真实日报补跑使用 `ai-radar-daily.yml` 的 **Run workflow**，且必须将 `confirm` 输入为 `RUN_PRODUCTION`；该路径会真实发送飞书并发布站点，执行前应先核对对应日期的投递收据。
 
+如果日报在 ingest 成功后、投递前失败，且失败快照已经成为服务器的 `current`，直接重跑完整流程可能改变采集窗口的目标日期。此时可在日报 workflow 的手动运行中填写 `recover_target_date` 和 `recover_source_run_id`，从失败快照继续 Tier 1、策展和投递，不重新 ingest。恢复入口会要求当前快照的任务为 `daily-failed`、运行 ID 和目标日期均匹配、已有采集内容且目标日期无投递收据；任一条件不符就停止。已有 `started` 或 `uncertain` 回执时应先人工核对飞书投递，不能用恢复入口自动重发。
+
 托管工作流负责持久状态恢复、Secret 注入和调度日志。修改代码或配置后，不要把 `.env`、OAuth 凭据、SSH 私钥或其他 secrets 提交到 Git。
