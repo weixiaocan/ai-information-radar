@@ -17,7 +17,7 @@
 
 - YouTube channels / playlists：宏观访谈类（Lenny's、Dwarkesh、YC、Latent Space 等）与工程实践类（AI Engineer、IndyDevDan、Cole Medin、Dave Ebbelaar）
 - RSS feeds：Simon Willison、Hamel Husain、Chip Huyen、Hugging Face Blog、Import AI、Hacker News 等
-- Web scrape sources：Anthropic Engineering、Claude Blog（claude.com/blog）、Anthropic Academy 新课程、OpenAI News
+- Web scrape sources：Anthropic Engineering、Anthropic Research、Claude Blog（claude.com/blog）、Anthropic Academy 新课程、OpenAI News
 
 每日抓取窗口固定为北京时间前一天 07:00 至当天 07:00，与任务实际启动时间无关；若前一次未完成，下次运行最多补抓 3 天。只提供日期的网页文章允许向前宽限 2 天，由 `seen_ids` 去重。
 

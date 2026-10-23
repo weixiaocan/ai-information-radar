@@ -5,6 +5,14 @@ sources:
     index_url: "https://www.anthropic.com/engineering"
     article_base_url: "https://www.anthropic.com/engineering/"
     enabled: true
+  - name: anthropic_research
+    display_name: Anthropic Research
+    type: scrape
+    index_url: "https://www.anthropic.com/research"
+    article_base_url: "https://www.anthropic.com/research/"
+    exclude_path_prefixes:
+      - "/research/team/"
+    enabled: true
   - name: claude_blog
     display_name: Claude Blog
     type: scrape

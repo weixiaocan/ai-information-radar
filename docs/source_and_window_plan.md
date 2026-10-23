@@ -50,7 +50,8 @@
 | chip_huyen | Chip Huyen | `https://huyenchip.com/feed.xml` |
 | huggingface_blog | Hugging Face Blog | `https://huggingface.co/blog/feed.xml` |
 
-- 明确不加：AINews（本身是 AI 生成的汇总，与现有源高度重叠）、claude-cookbooks（需要过滤提交）、anthropic.com/research。
+- 明确不加：AINews（本身是 AI 生成的汇总，与现有源高度重叠）、claude-cookbooks（需要过滤提交）。
+- 2026-10-23 修订：原方案排除了 `anthropic.com/research`，但未记录理由；该栏目包含与 AI Agent、工程实践和工作变化直接相关的研究，因此加入监控。常规抓取窗口不会自动补录加入前的旧文。
 
 ## 5. 提示词
 

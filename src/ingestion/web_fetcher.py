@@ -163,8 +163,15 @@ class WebFetcher:
             entries = self._discover_anchor_class_entries(html, source)
         else:
             urls = self._discover_urls(html, str(source.get("article_base_url", "")).strip(), source["index_url"])
+            excluded_prefixes = tuple(
+                str(prefix).strip()
+                for prefix in source.get("exclude_path_prefixes", [])
+                if str(prefix).strip()
+            )
             entries = []
             for raw_url, normalized_url in urls:
+                if excluded_prefixes and urlparse(normalized_url).path.startswith(excluded_prefixes):
+                    continue
                 title = self._extract_anchor_title(html, raw_url) or self._extract_anchor_title(html, normalized_url)
                 entries.append({"url": normalized_url, "title": title})
         max_entries = source.get("max_entries", None if source.get("undated") else self.DEFAULT_MAX_ENTRIES)

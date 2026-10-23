@@ -1,9 +1,11 @@
 import unittest
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from src.ingestion.web_fetcher import WebFetcher
+from src.utils.config import load_yaml
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 WINDOW_START = datetime(2026, 10, 14, 7, tzinfo=SHANGHAI)
@@ -64,6 +66,33 @@ class WebFetcherWindowTest(unittest.TestCase):
             fetcher.stale_content_ids,
             {"web_https://www.anthropic.com/engineering/how-we-contain-claude"},
         )
+
+    def test_anthropic_research_article_survives_section_links_and_daily_window(self) -> None:
+        config_path = Path(__file__).resolve().parents[1] / "config" / "web_sources.yaml"
+        sources = load_yaml(config_path)["sources"]
+        source = next(source for source in sources if source["name"] == "anthropic_research")
+        index = "".join(
+            f'<a href="/research/team/section-{number}">Section</a>'
+            for number in range(20)
+        ) + '<a href="/research/employment-at-anthropic">How employment is changing at Anthropic</a>'
+        pages = {
+            source["index_url"]: index,
+            "https://www.anthropic.com/research/employment-at-anthropic": _article(
+                "How employment is changing at Anthropic", "Published Oct 16, 2026"
+            ),
+        }
+        fetcher = WebFetcher(timeout_seconds=30, date_grace_days=2)
+        start = datetime(2026, 10, 16, 7, tzinfo=SHANGHAI)
+        end = datetime(2026, 10, 17, 7, tzinfo=SHANGHAI)
+
+        with patch.object(fetcher, "_request", side_effect=_serve(pages)):
+            items = fetcher.fetch([source], set(), recent_days=1, start_at=start, end_at=end)
+
+        self.assertEqual([item.url for item in items], [
+            "https://www.anthropic.com/research/employment-at-anthropic"
+        ])
+        self.assertEqual(items[0].source_name, "anthropic_research")
+        self.assertEqual(fetcher.source_statuses["web:anthropic_research"]["status"], "success")
 
     def test_date_only_article_outside_grace_is_stale(self) -> None:
         fetcher = WebFetcher(timeout_seconds=30, date_grace_days=0)
