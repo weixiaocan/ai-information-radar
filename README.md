@@ -45,7 +45,7 @@ Builder/X 信号源：
 
 其中 Top 2 只来自完成 Tier 2 评分的 YouTube 内容。
 
-每周推荐的播客文字稿默认复制到 Obsidian 目录 `D:\huangxh\obsidian\输出\公众号\草稿\每日播客`，项目内的 `reports/ebook/` 原稿仍保留。本地生成任务可通过 `.env` 中的 `WEEKLY_EBOOK_EXPORT_DIR` 覆盖导出路径；Windows 计划任务使用的服务器拉取脚本 `scripts/pull_weekly_ebook.ps1` 只同步服务器本周一以来生成的稿件到上述 Obsidian 目录，并在日志中记录周区间和文件名。PowerShell 脚本以纯 ASCII 保存，并在运行时构造中文路径，避免 Windows PowerShell 5 将无 BOM 的 UTF-8 路径解码成乱码。
+每周推荐的播客文字稿默认复制到 Obsidian 目录 `D:\huangxh\obsidian\输出\公众号\草稿\每日播客`，项目内的 `reports/ebook/` 原稿仍保留。本地生成任务可通过 `.env` 中的 `WEEKLY_EBOOK_EXPORT_DIR` 覆盖导出路径；GitHub Actions 生成的原稿保存在腾讯服务器 `/srv/ai-radar-data/current/reports/ebook/<ISO年-W周>/`。Windows 计划任务使用 `scripts/pull_weekly_ebook.ps1` 从新服务器补齐本机缺失的周稿，按 SHA-256 跳过相同文件，并保留本机内容不同的文件供人工核对；可用 `-DryRun` 只查看待同步数量。运行结果写入 `state/logs/weekly-ebook-pull.log`。PowerShell 脚本以纯 ASCII 保存，并在运行时构造中文路径，避免 Windows PowerShell 5 将无 BOM 的 UTF-8 路径解码成乱码。本机同步是可选副本，不参与生产任务调度或飞书投递。
 
 ## 快速开始
 
